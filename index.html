@@ -1,0 +1,1614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>Lifecycle Ledger — PLC Dashboard</title>
+<meta name="description" content="Product life-cycle tracking dashboard: stage classification, target variance and action plans for every SKU. Works offline."/>
+
+<link rel="manifest" href="./manifest.webmanifest"/>
+<meta name="theme-color" content="#1F6F5C" media="(prefers-color-scheme: light)"/>
+<meta name="theme-color" content="#141713" media="(prefers-color-scheme: dark)"/>
+
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png"/>
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png"/>
+
+<!-- iOS standalone -->
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Lifecycle Ledger"/>
+
+<style>
+  /* เว้นขอบจอมือถือที่มีติ่ง/แถบล่าง เมื่อเปิดแบบ standalone */
+  .ll-shell {
+    padding-left: max(28px, env(safe-area-inset-left));
+    padding-right: max(28px, env(safe-area-inset-right));
+    padding-top: max(28px, env(safe-area-inset-top));
+    padding-bottom: max(64px, env(safe-area-inset-bottom));
+  }
+  @media (max-width: 620px) {
+    .ll-shell {
+      padding-left: max(14px, env(safe-area-inset-left));
+      padding-right: max(14px, env(safe-area-inset-right));
+      padding-top: max(18px, env(safe-area-inset-top));
+    }
+  }
+  /* ปุ่มติดตั้งแอป (โผล่เฉพาะตอนที่เบราว์เซอร์ยอมให้ติดตั้ง) */
+  #ll-install-btn { display: none; }
+  #ll-install-btn.show { display: inline-flex; }
+  /* แถบแจ้งเตือนสถานะออฟไลน์ / อัปเดต */
+  .ll-toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: max(16px, env(safe-area-inset-bottom));
+    background: var(--text); color: var(--bg);
+    padding: 11px 18px; border-radius: 999px; font-size: 14px; font-weight: 600;
+    box-shadow: var(--shadow-lg); z-index: 200; display: flex; align-items: center; gap: 12px;
+    font-family: var(--font-body);
+  }
+  .ll-toast button {
+    background: var(--bg); color: var(--text); border: none; border-radius: 999px;
+    padding: 5px 12px; font-weight: 700; font-size: 13px; cursor: pointer; font-family: inherit;
+  }
+</style>
+</head>
+<body>
+<style>
+/* ==========================================================================
+   Lifecycle Ledger — design tokens
+   Palette: warm sage paper + malachite (primary) + ember (secondary CTA)
+   Type: serif display (headings/numbers of note) · system sans (UI/body)
+         · monospace (tabular data) — three deliberately different registers
+   ========================================================================== */
+:root {
+  --bg: #F5F6F1;
+  --surface: #FFFFFF;
+  --surface-2: #ECEFE7;
+  --border: #DBE2D6;
+  --border-strong: #C4CEBC;
+  --text: #1E241F;
+  --text-muted: #5C6459;
+  --text-faint: #8A9184;
+
+  --accent: #1F6F5C;
+  --accent-strong: #154D40;
+  --accent-soft: #DCEEE6;
+  --ember: #C4622D;
+  --ember-strong: #A24E22;
+  --ember-soft: #F5E3D5;
+
+  --pos: #2F8F5B;
+  --pos-soft: #E1F3E8;
+  --neg: #C1443A;
+  --neg-soft: #FBE4E1;
+
+  --stage-introduction: #3E72B8;
+  --stage-introduction-soft: #E5EDF8;
+  --stage-growth: #2F8F5B;
+  --stage-growth-soft: #E1F3E8;
+  --stage-recovery: #1F9E93;
+  --stage-recovery-soft: #DFF4F1;
+  --stage-maturity: #AD7E22;
+  --stage-maturity-soft: #FBEFD6;
+  --stage-saturation: #8358BF;
+  --stage-saturation-soft: #EFE6F9;
+  --stage-decline: #C1443A;
+  --stage-decline-soft: #FBE4E1;
+
+  --shadow-sm: 0 1px 2px rgba(30, 40, 30, 0.06);
+  --shadow-md: 0 6px 20px rgba(30, 55, 45, 0.08);
+  --shadow-lg: 0 16px 40px rgba(20, 35, 28, 0.14);
+
+  --font-display: Arial, Helvetica, "Segoe UI", sans-serif;
+  --font-body: Arial, Helvetica, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141713;
+    --surface: #1C201B;
+    --surface-2: #232922;
+    --border: #333B2E;
+    --border-strong: #435040;
+    --text: #E9ECE3;
+    --text-muted: #9CA595;
+    --text-faint: #707A6C;
+
+    --accent: #4FB894;
+    --accent-strong: #6FD1AE;
+    --accent-soft: #1E332B;
+    --ember: #E08A52;
+    --ember-strong: #F0A06C;
+    --ember-soft: #3A2A1D;
+
+    --pos: #5FCB93;
+    --pos-soft: #17301F;
+    --neg: #E2766D;
+    --neg-soft: #392019;
+
+    --stage-introduction: #7FA9E0;
+    --stage-introduction-soft: #1C2A3C;
+    --stage-growth: #5FCB93;
+    --stage-growth-soft: #17301F;
+    --stage-recovery: #57D9CC;
+    --stage-recovery-soft: #12302C;
+    --stage-maturity: #E0B463;
+    --stage-maturity-soft: #362B18;
+    --stage-saturation: #BFA0EE;
+    --stage-saturation-soft: #2B2138;
+    --stage-decline: #E2766D;
+    --stage-decline-soft: #392019;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #141713;
+  --surface: #1C201B;
+  --surface-2: #232922;
+  --border: #333B2E;
+  --border-strong: #435040;
+  --text: #E9ECE3;
+  --text-muted: #9CA595;
+  --text-faint: #707A6C;
+  --accent: #4FB894;
+  --accent-strong: #6FD1AE;
+  --accent-soft: #1E332B;
+  --ember: #E08A52;
+  --ember-strong: #F0A06C;
+  --ember-soft: #3A2A1D;
+  --pos: #5FCB93;
+  --pos-soft: #17301F;
+  --neg: #E2766D;
+  --neg-soft: #392019;
+  --stage-introduction: #7FA9E0;
+  --stage-introduction-soft: #1C2A3C;
+  --stage-growth: #5FCB93;
+  --stage-growth-soft: #17301F;
+  --stage-recovery: #57D9CC;
+  --stage-recovery-soft: #12302C;
+  --stage-maturity: #E0B463;
+  --stage-maturity-soft: #362B18;
+  --stage-saturation: #BFA0EE;
+  --stage-saturation-soft: #2B2138;
+  --stage-decline: #E2766D;
+  --stage-decline-soft: #392019;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #F5F6F1;
+  --surface: #FFFFFF;
+  --surface-2: #ECEFE7;
+  --border: #DBE2D6;
+  --border-strong: #C4CEBC;
+  --text: #1E241F;
+  --text-muted: #5C6459;
+  --text-faint: #8A9184;
+  --accent: #1F6F5C;
+  --accent-strong: #154D40;
+  --accent-soft: #DCEEE6;
+  --ember: #C4622D;
+  --ember-strong: #A24E22;
+  --ember-soft: #F5E3D5;
+  --pos: #2F8F5B;
+  --pos-soft: #E1F3E8;
+  --neg: #C1443A;
+  --neg-soft: #FBE4E1;
+  --stage-introduction: #3E72B8;
+  --stage-introduction-soft: #E5EDF8;
+  --stage-growth: #2F8F5B;
+  --stage-growth-soft: #E1F3E8;
+  --stage-recovery: #1F9E93;
+  --stage-recovery-soft: #DFF4F1;
+  --stage-maturity: #AD7E22;
+  --stage-maturity-soft: #FBEFD6;
+  --stage-saturation: #8358BF;
+  --stage-saturation-soft: #EFE6F9;
+  --stage-decline: #C1443A;
+  --stage-decline-soft: #FBE4E1;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+html, body { background: var(--bg); }
+#ll-root {
+  font-family: var(--font-body);
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  font-size: 16px;
+  line-height: 1.5;
+}
+#ll-root ::selection { background: var(--accent-soft); color: var(--accent-strong); }
+
+.ll-shell { max-width: 1360px; margin: 0 auto; padding: 28px 28px 64px; }
+
+/* ---------- header ---------- */
+.ll-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 20px; margin-bottom: 26px; flex-wrap: wrap;
+}
+.ll-brand { display: flex; align-items: center; gap: 12px; }
+.ll-brand-mark {
+  width: 40px; height: 40px; border-radius: var(--radius-sm);
+  background: linear-gradient(155deg, var(--accent), var(--accent-strong));
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+}
+.ll-brand-mark svg { width: 22px; height: 22px; }
+.ll-brand-text h1 {
+  font-family: var(--font-display); font-size: 30px; font-weight: 700;
+  margin: 0; letter-spacing: 0.1px; text-wrap: balance;
+}
+.ll-brand-text p { margin: 3px 0 0; color: var(--text-muted); font-size: 15px; }
+.ll-header-actions { display: flex; align-items: center; gap: 10px; position: relative; }
+
+.ll-btn {
+  font-family: var(--font-body); font-size: 15px; font-weight: 600;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text);
+  padding: 10px 16px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+  transition: border-color .12s ease, box-shadow .12s ease, transform .06s ease;
+}
+.ll-btn:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
+.ll-btn:active { transform: translateY(1px); }
+.ll-btn:focus-visible, .ll-icon-btn:focus-visible, .ll-chip:focus-visible,
+input:focus-visible, select:focus-visible, .ll-th-sort:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.ll-btn svg { width: 16px; height: 16px; }
+.ll-btn-primary {
+  background: var(--ember); border-color: var(--ember); color: #fff;
+}
+.ll-btn-primary:hover { background: var(--ember-strong); border-color: var(--ember-strong); }
+.ll-btn-ghost { border-color: transparent; background: transparent; }
+.ll-btn-ghost:hover { background: var(--surface-2); border-color: transparent; }
+.ll-btn-danger { color: var(--neg); border-color: var(--neg); background: var(--neg-soft); }
+.ll-btn-danger:hover { background: var(--neg); color: #fff; }
+
+/* ---------- KPI row ---------- */
+.ll-kpi-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px; margin-bottom: 22px;
+}
+.ll-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-sm);
+  padding: 16px 18px;
+}
+.ll-kpi-label {
+  font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--text-faint); font-weight: 700; margin: 0 0 8px;
+}
+.ll-kpi-value {
+  font-family: var(--font-display); font-size: 32px; font-weight: 700;
+  font-variant-numeric: tabular-nums; letter-spacing: 0.1px; margin: 0;
+}
+.ll-kpi-value.mono { font-family: var(--font-mono); font-size: 28px; }
+.ll-kpi-delta { margin-top: 6px; font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ll-kpi-delta.pos { color: var(--pos); }
+.ll-kpi-delta.neg { color: var(--neg); }
+.ll-kpi-delta.muted { color: var(--text-faint); font-weight: 500; }
+
+.ll-mix-bar {
+  display: flex; height: 10px; border-radius: 6px; overflow: hidden;
+  background: var(--surface-2); margin-top: 10px;
+}
+.ll-mix-seg { height: 100%; }
+.ll-mix-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; }
+.ll-mix-item { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-muted); }
+.ll-mix-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ll-mix-item b { font-family: var(--font-mono); color: var(--text); font-weight: 600; }
+
+/* ---------- toolbar ---------- */
+.ll-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px;
+  position: sticky; top: 12px; z-index: 5; backdrop-filter: blur(6px);
+}
+.ll-search { position: relative; flex: 1 1 220px; min-width: 180px; }
+.ll-search svg {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  width: 15px; height: 15px; color: var(--text-faint); pointer-events: none;
+}
+.ll-search input {
+  width: 100%; padding: 9px 12px 9px 34px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  font-size: 15px; font-family: var(--font-body);
+}
+.ll-chip-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ll-chip-group-label { font-size: 12.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; font-weight: 700; }
+.ll-chip {
+  font-size: 14px; font-weight: 600; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-muted);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.ll-chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+.ll-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+.ll-chip:hover { border-color: var(--accent); }
+
+.ll-range-group { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-muted); }
+.ll-range-group input {
+  width: 100px; padding: 7px 8px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  font-family: var(--font-mono); font-size: 14px;
+}
+
+/* ---------- category dropdown filter ---------- */
+.ll-dropdown-wrap { position: relative; }
+.ll-dropdown-btn {
+  font-size: 14px; font-weight: 600; padding: 7px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+}
+.ll-dropdown-btn:hover { border-color: var(--accent); }
+.ll-dropdown-btn svg { width: 13px; height: 13px; opacity: 0.6; }
+.ll-dropdown-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; min-width: 210px; max-height: 280px;
+  overflow-y: auto; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 8px; z-index: 40;
+}
+.ll-dropdown-option {
+  display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px;
+  font-size: 14px; cursor: pointer; user-select: none;
+}
+.ll-dropdown-option:hover { background: var(--surface-2); }
+.ll-dropdown-option input { width: 15px; height: 15px; accent-color: var(--accent); flex-shrink: 0; }
+.ll-dropdown-footer { display: flex; justify-content: space-between; gap: 8px; padding: 8px 6px 2px; border-top: 1px solid var(--border); margin-top: 6px; }
+.ll-dropdown-footer button { font-size: 12.5px; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); cursor: pointer; }
+
+.ll-toolbar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+/* ---------- settings popover ---------- */
+.ll-popover {
+  position: absolute; top: calc(100% + 8px); right: 0; width: 300px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 16px;
+  z-index: 30;
+}
+.ll-popover h3 { margin: 0 0 4px; font-family: var(--font-display); font-size: 19px; }
+.ll-popover p.hint { margin: 0 0 14px; color: var(--text-muted); font-size: 13.5px; }
+.ll-field { margin-bottom: 12px; }
+.ll-field label { display: block; font-size: 13.5px; font-weight: 600; color: var(--text-muted); margin-bottom: 5px; }
+.ll-field input, .ll-field select {
+  width: 100%; padding: 9px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--bg); color: var(--text);
+  font-family: var(--font-mono); font-size: 15px;
+}
+.ll-field select { font-family: var(--font-body); }
+.ll-popover-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* ---------- table ---------- */
+.ll-table-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 22px; }
+.ll-table-scroll { overflow-x: auto; }
+table.ll-table { border-collapse: collapse; width: 100%; min-width: 1320px; }
+.ll-table thead th {
+  position: sticky; top: 0; background: var(--surface-2); z-index: 2;
+  text-align: left; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-faint); font-weight: 700; padding: 11px 12px; border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ll-th-sort { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; user-select: none; background: none; border: none; color: inherit; font: inherit; padding: 0; }
+.ll-th-sort svg { width: 10px; height: 10px; opacity: 0.35; }
+.ll-th-sort.active svg { opacity: 1; color: var(--accent); }
+.ll-table tbody td {
+  padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: top;
+  font-size: 15px;
+}
+.ll-table tbody tr:last-child td { border-bottom: none; }
+.ll-table tbody tr { border-left: 3px solid transparent; }
+.ll-table tbody tr:hover { background: var(--surface-2); }
+.ll-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.ll-sku { font-family: var(--font-mono); color: var(--text-muted); font-size: 14px; white-space: nowrap; }
+.ll-name { font-weight: 600; }
+.ll-cat { color: var(--text-muted); font-size: 14px; }
+.ll-date { font-family: var(--font-mono); font-size: 14px; color: var(--text-muted); white-space: nowrap; }
+
+.ll-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px 5px 9px;
+  border-radius: 999px; font-size: 13px; font-weight: 700; white-space: nowrap;
+}
+.ll-pill .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+.ll-variance { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ll-variance.pos { color: var(--pos); }
+.ll-variance.neg { color: var(--neg); }
+.ll-variance.none { color: var(--text-faint); font-weight: 500; }
+
+.ll-contrib-cell { display: flex; align-items: center; gap: 8px; min-width: 108px; }
+.ll-contrib-track { flex: 1; height: 6px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.ll-contrib-fill { height: 100%; background: var(--accent); border-radius: 4px; }
+.ll-contrib-num { font-family: var(--font-mono); font-size: 13.5px; width: 46px; text-align: right; flex-shrink: 0; }
+
+/* Action plan: full text, wraps within a generous fixed column instead of being clipped
+   (was the mobile/narrow-browser truncation bug) */
+.ll-action-text {
+  color: var(--text-muted); font-size: 14px; display: block; white-space: normal;
+  line-height: 1.4; word-break: break-word; min-width: 240px; max-width: 340px;
+}
+
+.ll-row-actions { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+.ll-icon-btn {
+  width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid transparent;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.ll-icon-btn svg { width: 16px; height: 16px; }
+.ll-icon-btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+.ll-icon-btn.danger:hover { background: var(--neg-soft); color: var(--neg); border-color: var(--neg); }
+
+.ll-confirm-row { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.ll-confirm-row span { font-size: 13.5px; color: var(--neg); font-weight: 600; }
+.ll-confirm-row button { font-size: 13px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); cursor: pointer; }
+.ll-confirm-row button.yes { background: var(--neg); color: #fff; border-color: var(--neg); }
+
+.ll-empty { padding: 48px 20px; text-align: center; color: var(--text-muted); }
+.ll-empty svg { width: 34px; height: 34px; color: var(--text-faint); margin-bottom: 10px; }
+.ll-empty p { margin: 4px 0; }
+.ll-empty button { margin-top: 10px; }
+
+/* ---------- charts ---------- */
+.ll-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 880px) { .ll-charts-grid { grid-template-columns: 1fr; } }
+.ll-chart-card h3 { font-family: var(--font-display); font-size: 19px; margin: 0 0 2px; }
+.ll-chart-card p.sub { color: var(--text-faint); font-size: 13px; margin: 0 0 14px; }
+.ll-bar-row { display: grid; grid-template-columns: 130px 1fr 62px; align-items: center; gap: 8px; margin-bottom: 9px; font-size: 14px; }
+.ll-bar-row .lbl { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ll-bar-track { height: 9px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.ll-bar-fill { height: 100%; border-radius: 5px; background: var(--accent); }
+.ll-bar-num { font-family: var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+
+.ll-diverge-row { display: grid; grid-template-columns: 120px 1fr 66px; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 14px; }
+.ll-diverge-row .lbl { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ll-diverge-track { position: relative; height: 12px; background: var(--surface-2); border-radius: 4px; }
+.ll-diverge-zero { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--border-strong); left: 50%; }
+.ll-diverge-fill { position: absolute; top: 1px; bottom: 1px; border-radius: 3px; }
+.ll-diverge-fill.pos { background: var(--pos); left: 50%; }
+.ll-diverge-fill.neg { background: var(--neg); right: 50%; }
+.ll-diverge-num { font-family: var(--font-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.ll-chart-empty { color: var(--text-faint); font-size: 14px; padding: 10px 0; }
+
+/* ---------- sparkline ---------- */
+.ll-spark-cell { line-height: 0; }
+
+/* ---------- modal ---------- */
+.ll-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(15, 20, 15, 0.45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 6vh 16px; z-index: 100; overflow-y: auto;
+}
+:root[data-theme="dark"] .ll-modal-backdrop, .ll-modal-backdrop { }
+@media (prefers-color-scheme: dark) { .ll-modal-backdrop { background: rgba(0,0,0,0.6); } }
+:root[data-theme="dark"] .ll-modal-backdrop { background: rgba(0,0,0,0.6); }
+:root[data-theme="light"] .ll-modal-backdrop { background: rgba(15, 20, 15, 0.45); }
+
+.ll-modal {
+  background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+  width: 100%; max-width: 640px; padding: 24px 26px 22px; border: 1px solid var(--border);
+}
+.ll-modal-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.ll-modal-head h2 { font-family: var(--font-display); font-size: 24px; margin: 0; }
+.ll-modal-head p { margin: 3px 0 0; color: var(--text-muted); font-size: 14px; }
+.ll-modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.ll-modal-grid .span2 { grid-column: 1 / -1; }
+.ll-field .err { color: var(--neg); font-size: 13px; margin-top: 4px; }
+.ll-field input.invalid, .ll-field select.invalid { border-color: var(--neg); }
+.ll-new-cat-wrap { margin-top: 8px; }
+
+.ll-preview {
+  margin-top: 16px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 14px 16px;
+}
+.ll-preview h4 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); font-weight: 700; }
+.ll-preview-grid { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+.ll-preview-item { display: flex; flex-direction: column; gap: 3px; }
+.ll-preview-item .k { font-size: 12.5px; color: var(--text-faint); }
+.ll-preview-item .v { font-family: var(--font-mono); font-size: 16px; font-weight: 700; }
+.ll-preview-action { margin-top: 10px; font-size: 14px; color: var(--text-muted); border-top: 1px dashed var(--border); padding-top: 10px; }
+
+.ll-modal-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.ll-modal-footer .right { display: flex; gap: 8px; }
+
+.ll-help-note { color: var(--text-faint); font-size: 13px; margin-top: 3px; }
+
+/* ---------- upload ---------- */
+.ll-upload-banner {
+  border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 16px;
+  font-size: 14px; display: flex; align-items: flex-start; gap: 10px; border: 1px solid;
+}
+.ll-upload-banner.ok { background: var(--pos-soft); border-color: var(--pos); color: var(--text); }
+.ll-upload-banner.err { background: var(--neg-soft); border-color: var(--neg); color: var(--text); }
+.ll-upload-banner button { margin-left: auto; background: none; border: none; cursor: pointer; color: inherit; font-size: 16px; line-height: 1; padding: 2px; }
+.ll-upload-banner ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--text-muted); }
+
+@media (max-width: 620px) {
+  .ll-modal-grid { grid-template-columns: 1fr; }
+  .ll-shell { padding: 18px 14px 48px; }
+}
+</style>
+
+<div id="ll-root">
+  <div class="ll-shell">
+    <div class="ll-header">
+      <div class="ll-brand">
+        <div class="ll-brand-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 20c4-1 6-4 6-8 0-3-1-5-3-6"/>
+            <path d="M20 6c-1 5-4 8-8 9-2.5.6-4-.3-4-2 0-2.5 3-4 6-4"/>
+            <circle cx="6" cy="19" r="1.4" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <div class="ll-brand-text">
+          <h1>Lifecycle Ledger</h1>
+          <p>Product life-cycle tracking, stage classification &amp; target variance for the menu</p>
+        </div>
+      </div>
+      <div class="ll-header-actions">
+        <input type="file" id="ll-upload-input" accept=".csv,.json" style="display:none"/>
+        <button class="ll-btn" id="ll-upload-btn" type="button" title="Upload a .csv or .json file — replaces the whole dataset">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0 4 4m-4-4-4 4"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+          Upload data
+        </button>
+        <button class="ll-btn" id="ll-settings-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+          Thresholds
+        </button>
+        <button class="ll-btn ll-btn-primary" id="ll-add-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          Add SKU
+        </button>
+        <div id="ll-settings-pop-slot"></div>
+      </div>
+    </div>
+
+    <div id="ll-upload-banner-slot"></div>
+    <div id="ll-kpi-slot"></div>
+    <div id="ll-toolbar-slot"></div>
+    <div id="ll-table-slot"></div>
+    <div id="ll-charts-slot"></div>
+  </div>
+</div>
+<div id="ll-modal-slot"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ======================= constants & seed data ======================= */
+
+  var STORAGE_KEY = "lifecycle-ledger-v1";
+
+  var STAGE_ORDER = ["introduction", "growth", "recovery", "maturity", "saturation", "decline"];
+  var STAGE_LABEL = {
+    introduction: "Introduction", growth: "Growth", recovery: "Recovery",
+    maturity: "Maturity", saturation: "Saturation", decline: "Decline"
+  };
+  var ACTION_PLAN = {
+    introduction: "Push awareness campaigns; track repeat-purchase rate before scaling spend.",
+    growth: "Expand distribution and lean into promotions — scale while momentum is real.",
+    recovery: "Do not re-run promos (margin risk). Fix pricing structure or trim cost base instead.",
+    maturity: "Hold the line: cost control and retention over acquisition spend.",
+    saturation: "Momentum has slowed but the target is still covered — watch the trend, no budget cuts yet.",
+    decline: "Cut marketing spend; bundle it out or evaluate delisting from the menu."
+  };
+  var STAGE_HELP = {
+    introduction: "Launched after the cut-off date — still in market-introduction.",
+    growth: "Momentum > growth threshold AND cumulative sales at/above target.",
+    recovery: "Momentum > growth threshold BUT cumulative sales still short of target.",
+    maturity: "Momentum sits between the two thresholds.",
+    saturation: "Momentum < decline threshold BUT cumulative sales still at/above target.",
+    decline: "Momentum < decline threshold AND cumulative sales short of target."
+  };
+
+  var DEFAULT_SETTINGS = { growthTh: 20, declineTh: -10, cutoff: "2026-01-01" };
+
+  var SEED_ITEMS = [
+    { id: "s1", sku: "SKU-001", name: "Mala Soup — Original", category: "Mala Soup", launch: "2024-01-15", m1: 10000, m2: 210000, m3: 245000, target: 0 },
+    { id: "s2", sku: "SKU-002", name: "Suancai Fish Stew", category: "Suancai Fish", launch: "2024-03-01", m1: 120000, m2: 165000, m3: 215000, target: 900000 },
+    { id: "s3", sku: "SKU-003", name: "Premium Sliced Beef Topping", category: "Topping", launch: "2023-06-10", m1: 310000, m2: 315000, m3: 312000, target: 0 },
+    { id: "s4", sku: "SKU-004", name: "Frozen Pumpkin Snow Drink", category: "Beverage", launch: "2026-05-01", m1: 15000, m2: 35000, m3: 68000, target: 0 },
+    { id: "s5", sku: "SKU-005", name: "Sweet Potato Suan-La Noodle", category: "Noodle", launch: "2025-02-20", m1: 90000, m2: 99000, m3: 99000, target: 0 },
+    { id: "s6", sku: "SKU-006", name: "Sichuan Salt & Pepper Chicken", category: "Appetizer", launch: "2023-11-05", m1: 140000, m2: 125000, m3: 105000, target: 360000 },
+    { id: "s7", sku: "SKU-007", name: "Grass Jelly Milk Tea", category: "Beverage", launch: "2022-08-15", m1: 85000, m2: 72000, m3: 58000, target: 250000 },
+    { id: "s8", sku: "SKU-008", name: "Korean-glazed Pork Belly", category: "Topping", launch: "2023-01-20", m1: 220000, m2: 218000, m3: 222000, target: 0 },
+    { id: "s9", sku: "SKU-009", name: "Fresh Lemon Oolong Tea", category: "Beverage", launch: "2026-06-10", m1: 12000, m2: 28000, m3: 52000, target: 0 },
+    { id: "s10", sku: "SKU-010", name: "Mala Chili Oil Dumplings", category: "Appetizer", launch: "2022-05-10", m1: 65000, m2: 50000, m3: 38000, target: 0 }
+  ];
+
+  /* ============================== state ============================== */
+
+  var state = {
+    items: [],
+    settings: null,
+    filters: { search: "", categories: [], stages: [], m3min: "", m3max: "" },
+    sort: { key: "contribution", dir: "desc" },
+    modal: { open: false, mode: "add", editingId: null },
+    confirmDeleteId: null,
+    settingsOpen: false,
+    categoryDropdownOpen: false
+  };
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.items) && parsed.items.length) {
+          state.items = parsed.items;
+          state.settings = Object.assign({}, DEFAULT_SETTINGS, parsed.settings || {});
+          return;
+        }
+      }
+    } catch (e) { /* fall through to seed */ }
+    state.items = JSON.parse(JSON.stringify(SEED_ITEMS));
+    state.settings = Object.assign({}, DEFAULT_SETTINGS);
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ items: state.items, settings: state.settings }));
+    } catch (e) { /* storage unavailable — app still works in-memory */ }
+  }
+
+  function resetToSample() {
+    state.items = JSON.parse(JSON.stringify(SEED_ITEMS));
+    state.settings = Object.assign({}, DEFAULT_SETTINGS);
+    persist();
+    renderToolbar();
+    renderResults();
+  }
+
+  function uid() {
+    return "id" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  /* ============================== helpers ============================== */
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+    });
+  }
+  function fmtMoney(n) {
+    return Math.round(n).toLocaleString("en-US");
+  }
+  function fmtPct(n, signed) {
+    if (n === null || n === undefined || isNaN(n)) return "—";
+    var s = n.toFixed(1) + "%";
+    if (signed) s = (n >= 0 ? "+" : "") + s;
+    return s;
+  }
+  function fmtDate(iso) {
+    var d = new Date(iso + "T00:00:00");
+    if (isNaN(d.getTime())) return iso;
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear();
+  }
+
+  /* ============================== business logic ============================== */
+  /* Ported 1:1 from the Python reference (app.py): calc_growth / classify_stage /
+     % variance vs target / % contribution vs whole portfolio. */
+
+  function calcGrowth(m2, m3) {
+    if (!m2) return !m3 ? 0 : 100;
+    return ((m3 - m2) / m2) * 100;
+  }
+
+  function classifyStage(growthPct, launchIso, gap, settings) {
+    var launch = new Date(launchIso + "T00:00:00");
+    var cutoff = new Date(settings.cutoff + "T00:00:00");
+    if (!isNaN(launch.getTime()) && launch > cutoff) return "introduction";
+    if (growthPct > settings.growthTh) return gap >= 0 ? "growth" : "recovery";
+    if (growthPct < settings.declineTh) return gap < 0 ? "decline" : "saturation";
+    return "maturity";
+  }
+
+  function computeAll(items, settings) {
+    var totalM3All = items.reduce(function (a, it) { return a + Number(it.m3 || 0); }, 0);
+    return items.map(function (it) {
+      var m1 = Number(it.m1) || 0, m2 = Number(it.m2) || 0, m3 = Number(it.m3) || 0;
+      var target = Number(it.target) || 0;
+      var total = m1 + m2 + m3;
+      var gap = total - target;
+      var variance = target > 0 ? (gap / target) * 100 : null;
+      var growth = calcGrowth(m2, m3);
+      var stage = classifyStage(growth, it.launch, gap, settings);
+      var contribution = totalM3All > 0 ? (m3 / totalM3All) * 100 : 0;
+      return Object.assign({}, it, {
+        m1: m1, m2: m2, m3: m3, target: target,
+        total: total, gap: gap, variance: variance, growth: growth,
+        stage: stage, contribution: contribution, action: ACTION_PLAN[stage]
+      });
+    });
+  }
+
+  /* ============================== filter / sort ============================== */
+
+  function getFilteredSorted() {
+    var rows = computeAll(state.items, state.settings);
+    var f = state.filters;
+    var q = f.search.trim().toLowerCase();
+    rows = rows.filter(function (r) {
+      if (q && r.sku.toLowerCase().indexOf(q) === -1 && r.name.toLowerCase().indexOf(q) === -1) return false;
+      if (f.categories.length && f.categories.indexOf(r.category) === -1) return false;
+      if (f.stages.length && f.stages.indexOf(r.stage) === -1) return false;
+      var min = f.m3min !== "" ? Number(f.m3min) : null;
+      var max = f.m3max !== "" ? Number(f.m3max) : null;
+      if (min !== null && r.m3 < min) return false;
+      if (max !== null && r.m3 > max) return false;
+      return true;
+    });
+    var key = state.sort.key, dir = state.sort.dir === "asc" ? 1 : -1;
+    var accessors = {
+      sku: function (r) { return r.sku.toLowerCase(); },
+      name: function (r) { return r.name.toLowerCase(); },
+      category: function (r) { return r.category.toLowerCase(); },
+      launch: function (r) { return r.launch; },
+      m1: function (r) { return r.m1; }, m2: function (r) { return r.m2; }, m3: function (r) { return r.m3; },
+      total: function (r) { return r.total; }, target: function (r) { return r.target; },
+      variance: function (r) { return r.variance === null ? -Infinity : r.variance; },
+      stage: function (r) { return STAGE_ORDER.indexOf(r.stage); },
+      contribution: function (r) { return r.contribution; }
+    };
+    var acc = accessors[key] || accessors.contribution;
+    rows.sort(function (a, b) {
+      var va = acc(a), vb = acc(b);
+      if (va < vb) return -1 * dir; if (va > vb) return 1 * dir; return 0;
+    });
+    return rows;
+  }
+
+  function allCategories() {
+    var set = {};
+    state.items.forEach(function (it) { set[it.category] = true; });
+    return Object.keys(set).sort();
+  }
+
+  /* ============================== rendering: shell (once) ============================== */
+
+  function iconSort(active, dir) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">' +
+      (active ? (dir === "asc" ? '<path d="M12 19V5M6 11l6-6 6 6"/>' : '<path d="M12 5v14M6 13l6 6 6-6"/>')
+              : '<path d="M8 9l4-4 4 4M8 15l4 4 4-4"/>') + '</svg>';
+  }
+
+  var COLS = [
+    { key: "sku", label: "SKU", sort: true },
+    { key: "name", label: "Product", sort: true },
+    { key: "category", label: "Category", sort: true },
+    { key: "launch", label: "Launched", sort: true },
+    { key: "trend", label: "Trend", sort: false },
+    { key: "m1", label: "M1", sort: true, num: true },
+    { key: "m2", label: "M2", sort: true, num: true },
+    { key: "m3", label: "M3", sort: true, num: true },
+    { key: "total", label: "Total M1–M3", sort: true, num: true },
+    { key: "target", label: "Target", sort: true, num: true },
+    { key: "variance", label: "% vs target", sort: true, num: true },
+    { key: "stage", label: "Stage", sort: true },
+    { key: "contribution", label: "% Contrib.", sort: true, num: true },
+    { key: "action", label: "Action plan", sort: false },
+    { key: "row_actions", label: "", sort: false }
+  ];
+
+  function renderToolbar() {
+    var slot = document.getElementById("ll-toolbar-slot");
+    var cats = allCategories();
+    var f = state.filters;
+    var html = '<div class="ll-toolbar" id="ll-toolbar">';
+    html += '<div class="ll-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>' +
+      '<input type="text" id="ll-search-input" placeholder="Search SKU or product name…" value="' + esc(f.search) + '"/></div>';
+
+    var catLabel = "All categories";
+    if (f.categories.length && f.categories.length < cats.length) {
+      catLabel = f.categories.length === 1 ? f.categories[0] : f.categories.length + " categories";
+    }
+    html += '<div class="ll-dropdown-wrap">' +
+      '<button type="button" class="ll-dropdown-btn" id="ll-cat-dropdown-btn">Category: ' + esc(catLabel) +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button>';
+    if (state.categoryDropdownOpen) {
+      html += '<div class="ll-dropdown-panel" id="ll-cat-dropdown-panel">';
+      if (!cats.length) {
+        html += '<div style="font-size:13px;color:var(--text-faint);padding:6px 8px;">No categories yet.</div>';
+      }
+      cats.forEach(function (c) {
+        var checked = f.categories.indexOf(c) !== -1;
+        html += '<label class="ll-dropdown-option"><input type="checkbox" data-cat-option="' + esc(c) + '"' + (checked ? " checked" : "") + '/>' + esc(c) + '</label>';
+      });
+      html += '<div class="ll-dropdown-footer"><button type="button" id="ll-cat-select-all">Select all</button><button type="button" id="ll-cat-clear">Clear</button></div>';
+      html += '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="ll-chip-group"><span class="ll-chip-group-label">Stage</span>';
+    STAGE_ORDER.forEach(function (s) {
+      var active = f.stages.indexOf(s) !== -1;
+      html += '<button type="button" class="ll-chip' + (active ? " active" : "") + '" data-stage-chip="' + s + '">' +
+        '<span class="dot" style="background:var(--stage-' + s + ')"></span>' + STAGE_LABEL[s] + '</button>';
+    });
+    html += '</div>';
+
+    html += '<div class="ll-range-group">M3 <input type="number" id="ll-m3-min" placeholder="min" value="' + esc(f.m3min) + '"/> – <input type="number" id="ll-m3-max" placeholder="max" value="' + esc(f.m3max) + '"/></div>';
+
+    html += '<div class="ll-toolbar-right"><button class="ll-btn ll-btn-ghost" id="ll-reset-filters" type="button">Reset filters</button></div>';
+    html += '</div>';
+    slot.innerHTML = html;
+
+    document.getElementById("ll-search-input").addEventListener("input", function (e) {
+      state.filters.search = e.target.value; renderResults();
+    });
+    document.getElementById("ll-cat-dropdown-btn").addEventListener("click", function (e) {
+      e.stopPropagation();
+      state.categoryDropdownOpen = !state.categoryDropdownOpen;
+      renderToolbar();
+    });
+    slot.querySelectorAll("[data-cat-option]").forEach(function (cb) {
+      cb.addEventListener("change", function () {
+        var c = cb.getAttribute("data-cat-option");
+        var idx = state.filters.categories.indexOf(c);
+        if (cb.checked) { if (idx === -1) state.filters.categories.push(c); }
+        else if (idx !== -1) state.filters.categories.splice(idx, 1);
+        renderToolbar();
+        renderResults();
+      });
+    });
+    var selAllBtn = document.getElementById("ll-cat-select-all");
+    if (selAllBtn) selAllBtn.addEventListener("click", function () {
+      state.filters.categories = allCategories();
+      renderToolbar(); renderResults();
+    });
+    var clearBtn = document.getElementById("ll-cat-clear");
+    if (clearBtn) clearBtn.addEventListener("click", function () {
+      state.filters.categories = [];
+      renderToolbar(); renderResults();
+    });
+    slot.querySelectorAll("[data-stage-chip]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var s = btn.getAttribute("data-stage-chip");
+        var idx = state.filters.stages.indexOf(s);
+        if (idx === -1) state.filters.stages.push(s); else state.filters.stages.splice(idx, 1);
+        btn.classList.toggle("active");
+        renderResults();
+      });
+    });
+    document.getElementById("ll-m3-min").addEventListener("input", function (e) { state.filters.m3min = e.target.value; renderResults(); });
+    document.getElementById("ll-m3-max").addEventListener("input", function (e) { state.filters.m3max = e.target.value; renderResults(); });
+    document.getElementById("ll-reset-filters").addEventListener("click", function () {
+      state.filters = { search: "", categories: [], stages: [], m3min: "", m3max: "" };
+      state.categoryDropdownOpen = false;
+      renderToolbar(); renderResults();
+    });
+  }
+
+  /* ============================== rendering: results (kpi + table + charts) ============================== */
+
+  function sparklineSvg(r) {
+    var vals = [r.m1, r.m2, r.m3];
+    var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
+    var span = (max - min) || 1;
+    var w = 64, h = 26, pad = 3;
+    var pts = vals.map(function (v, i) {
+      var x = pad + (i / 2) * (w - pad * 2);
+      var y = h - pad - ((v - min) / span) * (h - pad * 2);
+      return [x, y];
+    });
+    var line = pts.map(function (p) { return p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ");
+    var area = "3," + (h - pad) + " " + line + " " + pts[2][0].toFixed(1) + "," + (h - pad);
+    var col = "var(--stage-" + r.stage + ")";
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
+      '<polygon points="' + area + '" fill="' + col + '" opacity="0.14"></polygon>' +
+      '<polyline points="' + line + '" fill="none" stroke="' + col + '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></polyline>' +
+      '<circle cx="' + pts[2][0].toFixed(1) + '" cy="' + pts[2][1].toFixed(1) + '" r="2.4" fill="' + col + '"></circle>' +
+      '</svg>';
+  }
+
+  function renderKpis(filteredRows) {
+    var allRows = computeAll(state.items, state.settings);
+    var totalM3 = allRows.reduce(function (a, r) { return a + r.m3; }, 0);
+    var totalM2 = allRows.reduce(function (a, r) { return a + r.m2; }, 0);
+    var overallGrowth = calcGrowth(totalM2, totalM3);
+
+    var withTarget = allRows.filter(function (r) { return r.target > 0; });
+    var sumTarget = withTarget.reduce(function (a, r) { return a + r.target; }, 0);
+    var sumActual = withTarget.reduce(function (a, r) { return a + r.total; }, 0);
+    var targetVariance = sumTarget > 0 ? ((sumActual - sumTarget) / sumTarget) * 100 : null;
+
+    var counts = {};
+    STAGE_ORDER.forEach(function (s) { counts[s] = 0; });
+    filteredRows.forEach(function (r) { counts[r.stage]++; });
+    var totalCount = filteredRows.length || 1;
+
+    var html = '<div class="ll-kpi-row">';
+    html += '<div class="ll-card"><p class="ll-kpi-label">Total SKUs</p><p class="ll-kpi-value">' + state.items.length + '</p>' +
+      '<p class="ll-kpi-delta muted">' + filteredRows.length + ' shown after filters</p></div>';
+
+    html += '<div class="ll-card"><p class="ll-kpi-label">Total sales (M3)</p><p class="ll-kpi-value mono">฿' + fmtMoney(totalM3) + '</p>' +
+      '<p class="ll-kpi-delta ' + (overallGrowth >= 0 ? "pos" : "neg") + '">' + fmtPct(overallGrowth, true) + ' vs M2</p></div>';
+
+    if (sumTarget > 0) {
+      html += '<div class="ll-card"><p class="ll-kpi-label">Target achievement</p><p class="ll-kpi-value mono">฿' + fmtMoney(sumTarget) + '</p>' +
+        '<p class="ll-kpi-delta ' + (targetVariance >= 0 ? "pos" : "neg") + '">' + fmtPct(targetVariance, true) + ' vs target</p></div>';
+    } else {
+      html += '<div class="ll-card"><p class="ll-kpi-label">Target achievement</p><p class="ll-kpi-value" style="color:var(--text-faint);font-size:16px;">No targets set</p>' +
+        '<p class="ll-kpi-delta muted">Add one from “Add SKU” or an edit</p></div>';
+    }
+
+    html += '<div class="ll-card"><p class="ll-kpi-label">Portfolio mix <span style="text-transform:none;font-weight:400;">(filtered)</span></p>';
+    html += '<div class="ll-mix-bar">';
+    STAGE_ORDER.forEach(function (s) {
+      if (counts[s] > 0) html += '<div class="ll-mix-seg" style="width:' + (counts[s] / totalCount * 100) + '%;background:var(--stage-' + s + ')" title="' + STAGE_LABEL[s] + ': ' + counts[s] + '"></div>';
+    });
+    html += '</div><div class="ll-mix-legend">';
+    STAGE_ORDER.forEach(function (s) {
+      html += '<span class="ll-mix-item"><span class="ll-mix-dot" style="background:var(--stage-' + s + ')"></span>' + STAGE_LABEL[s] + ' <b>' + counts[s] + '</b></span>';
+    });
+    html += '</div></div>';
+    html += '</div>';
+    document.getElementById("ll-kpi-slot").innerHTML = html;
+  }
+
+  function renderTable(rows) {
+    var slot = document.getElementById("ll-table-slot");
+    var html = '<div class="ll-table-card"><div class="ll-table-scroll"><table class="ll-table"><thead><tr>';
+    COLS.forEach(function (c) {
+      if (c.sort) {
+        var active = state.sort.key === c.key;
+        html += '<th class="' + (c.num ? "ll-num" : "") + '"><button class="ll-th-sort' + (active ? " active" : "") + '" data-sort-key="' + c.key + '">' + c.label + iconSort(active, state.sort.dir) + '</button></th>';
+      } else {
+        var thStyle = c.key === "row_actions" ? ' style="width:80px"' : (c.key === "action" ? ' style="width:300px"' : "");
+        html += '<th' + thStyle + '>' + c.label + '</th>';
+      }
+    });
+    html += '</tr></thead><tbody>';
+
+    if (!rows.length) {
+      html += '<tr><td colspan="' + COLS.length + '"><div class="ll-empty">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>' +
+        '<p><strong>No SKUs match these filters.</strong></p><p>Try widening the category, stage, or M3 range.</p>' +
+        '<button class="ll-btn" id="ll-empty-reset" type="button">Reset filters</button></div></td></tr>';
+    } else {
+      rows.forEach(function (r) {
+        html += '<tr style="border-left-color:var(--stage-' + r.stage + ')" data-row-id="' + r.id + '">';
+        html += '<td class="ll-sku">' + esc(r.sku) + '</td>';
+        html += '<td class="ll-name">' + esc(r.name) + '</td>';
+        html += '<td class="ll-cat">' + esc(r.category) + '</td>';
+        html += '<td class="ll-date">' + fmtDate(r.launch) + '</td>';
+        html += '<td class="ll-spark-cell">' + sparklineSvg(r) + '</td>';
+        html += '<td class="ll-num">' + fmtMoney(r.m1) + '</td>';
+        html += '<td class="ll-num">' + fmtMoney(r.m2) + '</td>';
+        html += '<td class="ll-num">' + fmtMoney(r.m3) + '</td>';
+        html += '<td class="ll-num">' + fmtMoney(r.total) + '</td>';
+        html += '<td class="ll-num">' + (r.target > 0 ? fmtMoney(r.target) : '<span style="color:var(--text-faint)">—</span>') + '</td>';
+        var vcls = r.variance === null ? "none" : (r.variance >= 0 ? "pos" : "neg");
+        html += '<td class="ll-num"><span class="ll-variance ' + vcls + '">' + fmtPct(r.variance, true) + '</span></td>';
+        html += '<td><span class="ll-pill" style="background:var(--stage-' + r.stage + '-soft);color:var(--stage-' + r.stage + ')" title="' + esc(STAGE_HELP[r.stage]) + '"><span class="dot" style="background:var(--stage-' + r.stage + ')"></span>' + STAGE_LABEL[r.stage] + '</span></td>';
+        html += '<td class="ll-num"><div class="ll-contrib-cell"><div class="ll-contrib-track"><div class="ll-contrib-fill" style="width:' + Math.min(100, r.contribution) + '%"></div></div><span class="ll-contrib-num">' + r.contribution.toFixed(1) + '%</span></div></td>';
+        html += '<td><span class="ll-action-text" title="' + esc(r.action) + '">' + esc(r.action) + '</span></td>';
+
+        if (state.confirmDeleteId === r.id) {
+          html += '<td><div class="ll-confirm-row"><span>Delete?</span><button type="button" class="yes" data-confirm-yes="' + r.id + '">Yes</button><button type="button" data-confirm-no="1">No</button></div></td>';
+        } else {
+          html += '<td><div class="ll-row-actions">' +
+            '<button class="ll-icon-btn" data-edit-id="' + r.id + '" title="Edit" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>' +
+            '<button class="ll-icon-btn danger" data-delete-id="' + r.id + '" title="Delete" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg></button>' +
+            '</div></td>';
+        }
+        html += '</tr>';
+      });
+    }
+    html += '</tbody></table></div></div>';
+    slot.innerHTML = html;
+
+    slot.querySelectorAll("[data-sort-key]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var k = btn.getAttribute("data-sort-key");
+        if (state.sort.key === k) state.sort.dir = state.sort.dir === "asc" ? "desc" : "asc";
+        else { state.sort.key = k; state.sort.dir = "desc"; }
+        renderResults();
+      });
+    });
+    slot.querySelectorAll("[data-edit-id]").forEach(function (btn) {
+      btn.addEventListener("click", function () { openModal("edit", btn.getAttribute("data-edit-id")); });
+    });
+    slot.querySelectorAll("[data-delete-id]").forEach(function (btn) {
+      btn.addEventListener("click", function () { state.confirmDeleteId = btn.getAttribute("data-delete-id"); renderResults(); });
+    });
+    slot.querySelectorAll("[data-confirm-yes]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-confirm-yes");
+        state.items = state.items.filter(function (it) { return it.id !== id; });
+        state.confirmDeleteId = null;
+        persist(); renderToolbar(); renderResults();
+      });
+    });
+    slot.querySelectorAll("[data-confirm-no]").forEach(function (btn) {
+      btn.addEventListener("click", function () { state.confirmDeleteId = null; renderResults(); });
+    });
+    var emptyReset = document.getElementById("ll-empty-reset");
+    if (emptyReset) emptyReset.addEventListener("click", function () {
+      state.filters = { search: "", categories: [], stages: [], m3min: "", m3max: "" };
+      renderToolbar(); renderResults();
+    });
+  }
+
+  function renderCharts(rows) {
+    var slot = document.getElementById("ll-charts-slot");
+    var html = '<div class="ll-charts-grid">';
+
+    // Contribution ranking
+    html += '<div class="ll-chart-card ll-card"><h3>Contribution ranking</h3><p class="sub">% of total portfolio M3 sales, current filter</p>';
+    if (!rows.length) {
+      html += '<div class="ll-chart-empty">No SKUs to chart.</div>';
+    } else {
+      var byContrib = rows.slice().sort(function (a, b) { return b.contribution - a.contribution; });
+      var maxC = Math.max.apply(null, byContrib.map(function (r) { return r.contribution; })) || 1;
+      byContrib.forEach(function (r) {
+        html += '<div class="ll-bar-row"><span class="lbl" title="' + esc(r.name) + '">' + esc(r.name) + '</span>' +
+          '<div class="ll-bar-track"><div class="ll-bar-fill" style="width:' + (r.contribution / maxC * 100) + '%;background:var(--stage-' + r.stage + ')"></div></div>' +
+          '<span class="ll-bar-num">' + r.contribution.toFixed(1) + '%</span></div>';
+      });
+    }
+    html += '</div>';
+
+    // Variance vs target (diverging)
+    html += '<div class="ll-chart-card ll-card"><h3>Variance vs. target</h3><p class="sub">SKUs with a target set, worst-off first</p>';
+    var withTarget = rows.filter(function (r) { return r.target > 0; }).sort(function (a, b) { return a.variance - b.variance; });
+    if (!withTarget.length) {
+      html += '<div class="ll-chart-empty">No SKUs in the current filter have a target set.</div>';
+    } else {
+      var maxAbs = Math.max.apply(null, withTarget.map(function (r) { return Math.abs(r.variance); })) || 1;
+      withTarget.forEach(function (r) {
+        var pct = Math.min(50, (Math.abs(r.variance) / maxAbs) * 50);
+        var cls = r.variance >= 0 ? "pos" : "neg";
+        html += '<div class="ll-diverge-row"><span class="lbl" title="' + esc(r.name) + '">' + esc(r.name) + '</span>' +
+          '<div class="ll-diverge-track"><div class="ll-diverge-zero"></div><div class="ll-diverge-fill ' + cls + '" style="width:' + pct + '%"></div></div>' +
+          '<span class="ll-diverge-num ll-variance ' + cls + '">' + fmtPct(r.variance, true) + '</span></div>';
+      });
+    }
+    html += '</div>';
+
+    html += '</div>';
+    slot.innerHTML = html;
+  }
+
+  function renderResults() {
+    var rows = getFilteredSorted();
+    renderKpis(rows);
+    renderTable(rows);
+    renderCharts(rows);
+  }
+
+  /* ============================== settings popover ============================== */
+
+  function closeSettings() {
+    state.settingsOpen = false;
+    document.getElementById("ll-settings-pop-slot").innerHTML = "";
+  }
+
+  function renderSettingsPopover() {
+    var slot = document.getElementById("ll-settings-pop-slot");
+    if (!state.settingsOpen) { slot.innerHTML = ""; return; }
+    var s = state.settings;
+    var html = '<div class="ll-popover" id="ll-settings-pop">';
+    html += '<h3>PLC thresholds</h3><p class="hint">Drives stage classification for every SKU, live.</p>';
+    html += '<div class="ll-field"><label>Growth threshold (%)</label><input type="number" id="ll-th-growth" value="' + s.growthTh + '"/></div>';
+    html += '<div class="ll-field"><label>Decline threshold (%)</label><input type="number" id="ll-th-decline" value="' + s.declineTh + '"/></div>';
+    html += '<div class="ll-field"><label>Introduction cut-off date</label><input type="date" id="ll-th-cutoff" value="' + s.cutoff + '"/></div>';
+    html += '<div class="ll-popover-footer"><button class="ll-btn ll-btn-ghost" id="ll-restore-sample" type="button">Restore sample data</button><button class="ll-btn ll-btn-primary" id="ll-settings-close" type="button">Done</button></div>';
+    html += '</div>';
+    slot.innerHTML = html;
+
+    document.getElementById("ll-th-growth").addEventListener("input", function (e) {
+      state.settings.growthTh = Number(e.target.value); persist(); renderResults();
+    });
+    document.getElementById("ll-th-decline").addEventListener("input", function (e) {
+      state.settings.declineTh = Number(e.target.value); persist(); renderResults();
+    });
+    document.getElementById("ll-th-cutoff").addEventListener("input", function (e) {
+      state.settings.cutoff = e.target.value; persist(); renderResults();
+    });
+    document.getElementById("ll-settings-close").addEventListener("click", closeSettings);
+
+    var restoreBtn = document.getElementById("ll-restore-sample");
+    var confirming = false, timer = null;
+    restoreBtn.addEventListener("click", function () {
+      if (!confirming) {
+        confirming = true;
+        restoreBtn.textContent = "Click again to confirm";
+        restoreBtn.classList.add("ll-btn-danger");
+        timer = setTimeout(function () {
+          confirming = false; restoreBtn.textContent = "Restore sample data"; restoreBtn.classList.remove("ll-btn-danger");
+        }, 3500);
+      } else {
+        clearTimeout(timer);
+        resetToSample();
+        closeSettings();
+      }
+    });
+  }
+
+  /* ============================== modal (add / edit) ============================== */
+
+  function computePreviewFromDraft(draft) {
+    var m1 = Number(draft.m1) || 0, m2 = Number(draft.m2) || 0, m3 = Number(draft.m3) || 0;
+    var target = Number(draft.target) || 0;
+    var total = m1 + m2 + m3;
+    var gap = total - target;
+    var variance = target > 0 ? (gap / target) * 100 : null;
+    var growth = calcGrowth(m2, m3);
+    var stage = classifyStage(growth, draft.launch || "1970-01-01", gap, state.settings);
+    return { total: total, variance: variance, growth: growth, stage: stage };
+  }
+
+  function updateModalPreview(draft) {
+    var p = computePreviewFromDraft(draft);
+    var el = document.getElementById("ll-modal-preview-body");
+    if (!el) return;
+    var vcls = p.variance === null ? "none" : (p.variance >= 0 ? "pos" : "neg");
+    el.innerHTML =
+      '<div class="ll-preview-item"><span class="k">Total M1–M3</span><span class="v">฿' + fmtMoney(p.total) + '</span></div>' +
+      '<div class="ll-preview-item"><span class="k">Momentum (M2→M3)</span><span class="v">' + fmtPct(p.growth, true) + '</span></div>' +
+      '<div class="ll-preview-item"><span class="k">vs. target</span><span class="v ll-variance ' + vcls + '">' + fmtPct(p.variance, true) + '</span></div>' +
+      '<div class="ll-preview-item"><span class="k">Stage</span><span class="v"><span class="ll-pill" style="background:var(--stage-' + p.stage + '-soft);color:var(--stage-' + p.stage + ')"><span class="dot" style="background:var(--stage-' + p.stage + ')"></span>' + STAGE_LABEL[p.stage] + '</span></span></div>';
+    var actionEl = document.getElementById("ll-modal-preview-action");
+    if (actionEl) actionEl.textContent = ACTION_PLAN[p.stage];
+  }
+
+  function openModal(mode, id) {
+    var existing = mode === "edit" ? state.items.find(function (it) { return it.id === id; }) : null;
+    var draft = existing ? Object.assign({}, existing) : { id: uid(), sku: "", name: "", category: "", launch: "", m1: "", m2: "", m3: "", target: "" };
+    state.modal = { open: true, mode: mode, editingId: existing ? existing.id : null };
+
+    var cats = allCategories();
+    var slot = document.getElementById("ll-modal-slot");
+    var errors = {};
+
+    function fieldHtml(id_, label, input, span2) {
+      return '<div class="ll-field' + (span2 ? " span2" : "") + '"><label for="' + id_ + '">' + label + '</label>' + input + '<div class="err" id="err-' + id_ + '"></div></div>';
+    }
+
+    var catOptions = cats.map(function (c) { return '<option value="' + esc(c) + '"' + (draft.category === c ? " selected" : "") + '>' + esc(c) + '</option>'; }).join("");
+    var isNewCat = draft.category && cats.indexOf(draft.category) === -1;
+
+    var html = '<div class="ll-modal-backdrop" id="ll-modal-backdrop"><div class="ll-modal" role="dialog" aria-modal="true">';
+    html += '<div class="ll-modal-head"><div><h2>' + (mode === "add" ? "Add a new SKU" : "Edit " + esc(existing.sku)) + '</h2>' +
+      '<p>Stage, variance and action plan recompute live as you type.</p></div>' +
+      '<button class="ll-icon-btn" id="ll-modal-close" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>';
+
+    html += '<div class="ll-modal-grid">';
+    html += fieldHtml("m-sku", "SKU / code", '<input type="text" id="m-sku" value="' + esc(draft.sku) + '" placeholder="e.g. SKU-011"/>');
+    html += fieldHtml("m-name", "Product name", '<input type="text" id="m-name" value="' + esc(draft.name) + '" placeholder="e.g. Mala Chicken Skewer"/>');
+    html += fieldHtml("m-category", "Category", '<select id="m-category">' +
+      '<option value="">Choose…</option>' + catOptions + '<option value="__new__"' + (isNewCat ? " selected" : "") + '>+ Add new category…</option></select>' +
+      '<div class="ll-new-cat-wrap" id="m-new-cat-wrap" style="display:' + (isNewCat ? "block" : "none") + '"><input type="text" id="m-new-category" value="' + (isNewCat ? esc(draft.category) : "") + '" placeholder="New category name"/></div>');
+    html += fieldHtml("m-launch", "Launch date", '<input type="date" id="m-launch" value="' + esc(draft.launch) + '"/>');
+    html += fieldHtml("m-m1", "Sales M1 (฿)", '<input type="number" min="0" id="m-m1" value="' + esc(draft.m1) + '"/>');
+    html += fieldHtml("m-m2", "Sales M2 (฿)", '<input type="number" min="0" id="m-m2" value="' + esc(draft.m2) + '"/>');
+    html += fieldHtml("m-m3", "Sales M3 (฿)", '<input type="number" min="0" id="m-m3" value="' + esc(draft.m3) + '"/>');
+    html += fieldHtml("m-target", "Sales target (฿, optional)", '<input type="number" min="0" id="m-target" value="' + esc(draft.target) + '"/>') ;
+    html += '</div>';
+
+    html += '<div class="ll-preview"><h4>Live preview</h4><div class="ll-preview-grid" id="ll-modal-preview-body"></div><div class="ll-preview-action" id="ll-modal-preview-action"></div></div>';
+
+    html += '<div class="ll-modal-footer"><div>' +
+      (mode === "edit" ? '<button class="ll-btn ll-btn-danger" id="ll-modal-delete" type="button">Delete SKU</button>' : '<span class="ll-help-note">Fields marked required must be filled in.</span>') +
+      '</div><div class="right"><button class="ll-btn ll-btn-ghost" id="ll-modal-cancel" type="button">Cancel</button><button class="ll-btn ll-btn-primary" id="ll-modal-save" type="button">' + (mode === "add" ? "Add SKU" : "Save changes") + '</button></div></div>';
+
+    html += '</div></div>';
+    slot.innerHTML = html;
+
+    function readDraft() {
+      var catSel = document.getElementById("m-category").value;
+      var newCat = document.getElementById("m-new-category").value.trim();
+      draft.sku = document.getElementById("m-sku").value.trim();
+      draft.name = document.getElementById("m-name").value.trim();
+      draft.category = catSel === "__new__" ? newCat : catSel;
+      draft.launch = document.getElementById("m-launch").value;
+      draft.m1 = document.getElementById("m-m1").value;
+      draft.m2 = document.getElementById("m-m2").value;
+      draft.m3 = document.getElementById("m-m3").value;
+      draft.target = document.getElementById("m-target").value;
+    }
+
+    function refreshPreview() { readDraft(); updateModalPreview(draft); }
+
+    ["m-sku", "m-name", "m-launch", "m-m1", "m-m2", "m-m3", "m-target"].forEach(function (fid) {
+      document.getElementById(fid).addEventListener("input", refreshPreview);
+    });
+    document.getElementById("m-category").addEventListener("change", function (e) {
+      document.getElementById("m-new-cat-wrap").style.display = e.target.value === "__new__" ? "block" : "none";
+      refreshPreview();
+    });
+    document.getElementById("m-new-category").addEventListener("input", refreshPreview);
+
+    refreshPreview();
+
+    function clearErrors() {
+      slot.querySelectorAll(".err").forEach(function (e) { e.textContent = ""; });
+      slot.querySelectorAll("input, select").forEach(function (e) { e.classList.remove("invalid"); });
+    }
+    function showError(fid, msg) {
+      var e = document.getElementById("err-" + fid);
+      if (e) e.textContent = msg;
+      var input = document.getElementById(fid);
+      if (input) input.classList.add("invalid");
+    }
+
+    function validateAndSave() {
+      readDraft();
+      clearErrors();
+      var ok = true;
+      if (!draft.sku) { showError("m-sku", "Required."); ok = false; }
+      else if (state.items.some(function (it) { return it.id !== draft.id && it.sku.toLowerCase() === draft.sku.toLowerCase(); })) { showError("m-sku", "SKU already exists."); ok = false; }
+      if (!draft.name) { showError("m-name", "Required."); ok = false; }
+      if (!draft.category) { showError("m-category", "Pick or type a category."); ok = false; }
+      if (!draft.launch) { showError("m-launch", "Required."); ok = false; }
+      [["m-m1", "m1"], ["m-m2", "m2"], ["m-m3", "m3"]].forEach(function (pair) {
+        if (draft[pair[1]] === "" || isNaN(Number(draft[pair[1]])) || Number(draft[pair[1]]) < 0) { showError(pair[0], "Enter a number ≥ 0."); ok = false; }
+      });
+      if (draft.target !== "" && (isNaN(Number(draft.target)) || Number(draft.target) < 0)) { showError("m-target", "Enter a number ≥ 0."); ok = false; }
+      if (!ok) return;
+
+      var record = {
+        id: draft.id, sku: draft.sku, name: draft.name, category: draft.category, launch: draft.launch,
+        m1: Number(draft.m1), m2: Number(draft.m2), m3: Number(draft.m3), target: draft.target === "" ? 0 : Number(draft.target)
+      };
+      if (mode === "add") state.items.push(record);
+      else state.items = state.items.map(function (it) { return it.id === record.id ? record : it; });
+
+      persist();
+      closeModal();
+      renderToolbar();
+      renderResults();
+    }
+
+    document.getElementById("ll-modal-save").addEventListener("click", validateAndSave);
+    document.getElementById("ll-modal-cancel").addEventListener("click", closeModal);
+    document.getElementById("ll-modal-close").addEventListener("click", closeModal);
+    document.getElementById("ll-modal-backdrop").addEventListener("mousedown", function (e) {
+      if (e.target.id === "ll-modal-backdrop") closeModal();
+    });
+    if (mode === "edit") {
+      document.getElementById("ll-modal-delete").addEventListener("click", function () {
+        closeModal();
+        state.confirmDeleteId = existing.id;
+        renderResults();
+        var row = document.querySelector('[data-row-id="' + existing.id + '"]');
+        if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+
+    document.addEventListener("keydown", escHandler);
+  }
+
+  function escHandler(e) {
+    if (e.key === "Escape" && state.modal.open) closeModal();
+  }
+
+  function closeModal() {
+    state.modal.open = false;
+    document.getElementById("ll-modal-slot").innerHTML = "";
+    document.removeEventListener("keydown", escHandler);
+  }
+
+  /* ============================== data upload (CSV / JSON) ============================== */
+  /* Uploading replaces the whole dataset — parses either format, validates every row,
+     and reports exactly what was imported / skipped before swapping state.items. */
+
+  var UPLOAD_ALIASES = {
+    sku: ["sku", "skucode", "code"],
+    name: ["name", "product", "productname"],
+    category: ["category"],
+    launch: ["launch", "launchdate", "launched", "date"],
+    m1: ["m1", "salesm1"],
+    m2: ["m2", "salesm2"],
+    m3: ["m3", "salesm3"],
+    target: ["target", "targetsales", "salestarget"]
+  };
+
+  function normalizeKey(k) { return String(k).trim().toLowerCase().replace(/[\s_/]+/g, ""); }
+
+  function parseCsvText(text) {
+    var rows = [], cur = [], field = "", inQuotes = false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+        } else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ",") { cur.push(field); field = ""; }
+      else if (c === "\r") { /* skip, \n handles the break */ }
+      else if (c === "\n") { cur.push(field); rows.push(cur); cur = []; field = ""; }
+      else field += c;
+    }
+    if (field.length || cur.length) { cur.push(field); rows.push(cur); }
+    return rows.filter(function (r) { return !(r.length === 1 && r[0].trim() === ""); });
+  }
+
+  function buildColumnMap(headerRow) {
+    var map = {};
+    headerRow.forEach(function (h, idx) {
+      var norm = normalizeKey(h);
+      Object.keys(UPLOAD_ALIASES).forEach(function (field) {
+        if (map[field] === undefined && UPLOAD_ALIASES[field].indexOf(norm) !== -1) map[field] = idx;
+      });
+    });
+    return map;
+  }
+
+  function extractFieldsFromObject(obj) {
+    var normMap = {};
+    Object.keys(obj || {}).forEach(function (k) { normMap[normalizeKey(k)] = obj[k]; });
+    var out = {};
+    Object.keys(UPLOAD_ALIASES).forEach(function (field) {
+      var aliases = UPLOAD_ALIASES[field];
+      for (var i = 0; i < aliases.length; i++) {
+        if (normMap.hasOwnProperty(aliases[i])) { out[field] = normMap[aliases[i]]; break; }
+      }
+    });
+    return out;
+  }
+
+  function toNumberLoose(v) {
+    if (v === undefined || v === null) return NaN;
+    var s = String(v).replace(/[^0-9.\-]/g, "");
+    if (s === "" || s === "-") return NaN;
+    return Number(s);
+  }
+  function normalizeDateLoose(v) {
+    if (v === undefined || v === null) return null;
+    var s = String(v).trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    return null;
+  }
+
+  function buildRecordFromFields(fields, rowLabel, seenSkus) {
+    var sku = fields.sku !== undefined ? String(fields.sku).trim() : "";
+    var name = fields.name !== undefined ? String(fields.name).trim() : "";
+    var category = fields.category !== undefined ? String(fields.category).trim() : "";
+    var launch = normalizeDateLoose(fields.launch);
+    var m1 = toNumberLoose(fields.m1), m2 = toNumberLoose(fields.m2), m3 = toNumberLoose(fields.m3);
+    var hasTarget = fields.target !== undefined && String(fields.target).trim() !== "";
+    var target = hasTarget ? toNumberLoose(fields.target) : 0;
+    if (isNaN(target) || target < 0) target = 0;
+
+    var errs = [];
+    if (!sku) errs.push("missing SKU");
+    else if (seenSkus[sku.toLowerCase()]) errs.push("duplicate SKU '" + sku + "'");
+    if (!name) errs.push("missing product name");
+    if (!category) errs.push("missing category");
+    if (!launch) errs.push("invalid or missing launch date");
+    if (isNaN(m1) || m1 < 0) errs.push("invalid M1");
+    if (isNaN(m2) || m2 < 0) errs.push("invalid M2");
+    if (isNaN(m3) || m3 < 0) errs.push("invalid M3");
+
+    if (errs.length) return { error: rowLabel + ": " + errs.join(", ") };
+    seenSkus[sku.toLowerCase()] = true;
+    return { record: { id: uid(), sku: sku, name: name, category: category, launch: launch, m1: m1, m2: m2, m3: m3, target: target } };
+  }
+
+  function showUploadBanner(type, message, errorList) {
+    var slot = document.getElementById("ll-upload-banner-slot");
+    var icon = type === "ok"
+      ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/></svg>'
+      : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2 18a1.8 1.8 0 0 0 1.6 2.7h16.8A1.8 1.8 0 0 0 22 18L13.7 3.9a1.8 1.8 0 0 0-3.4 0Z"/></svg>';
+    var html = '<div class="ll-upload-banner ' + type + '">' + icon + '<div><div>' + esc(message) + '</div>';
+    if (errorList && errorList.length) {
+      html += '<ul>' + errorList.map(function (e) { return "<li>" + esc(e) + "</li>"; }).join("") + '</ul>';
+    }
+    html += '</div><button type="button" id="ll-upload-banner-close" aria-label="Dismiss">&times;</button></div>';
+    slot.innerHTML = html;
+    document.getElementById("ll-upload-banner-close").addEventListener("click", function () { slot.innerHTML = ""; });
+  }
+
+  function finishUpload(records, errors) {
+    if (!records.length) {
+      showUploadBanner("err", "No valid rows found — nothing was imported." + (errors.length ? " First problem: " + errors[0] : ""), errors.slice(0, 10));
+      return;
+    }
+    state.items = records;
+    state.filters = { search: "", categories: [], stages: [], m3min: "", m3max: "" };
+    state.categoryDropdownOpen = false;
+    persist();
+    renderToolbar();
+    renderResults();
+    var msg = "Imported " + records.length + " product" + (records.length === 1 ? "" : "s") + " — replaced the whole dataset.";
+    if (errors.length) msg += " Skipped " + errors.length + " row" + (errors.length === 1 ? "" : "s") + ".";
+    showUploadBanner(errors.length ? "err" : "ok", msg, errors.slice(0, 10));
+  }
+
+  function handleUploadFile(file) {
+    var isJson = /\.json$/i.test(file.name);
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        var text = e.target.result;
+        var records = [], errors = [], seen = {};
+        if (isJson) {
+          var data = JSON.parse(text);
+          var arr = Array.isArray(data) ? data : (data && Array.isArray(data.items) ? data.items : null);
+          if (!arr) { showUploadBanner("err", 'The JSON file must be an array of products (or an object with an "items" array).', []); return; }
+          arr.forEach(function (obj, i) {
+            var fields = extractFieldsFromObject(obj);
+            var res = buildRecordFromFields(fields, "Item " + (i + 1), seen);
+            if (res.record) records.push(res.record); else errors.push(res.error);
+          });
+        } else {
+          var rows = parseCsvText(text);
+          if (!rows.length) { showUploadBanner("err", "The CSV file is empty.", []); return; }
+          var colMap = buildColumnMap(rows[0]);
+          var required = ["sku", "name", "category", "launch", "m1", "m2", "m3"];
+          var missing = required.filter(function (f) { return colMap[f] === undefined; });
+          if (missing.length) {
+            showUploadBanner("err", "The CSV is missing required column(s): " + missing.join(", ") +
+              ". Expected headers like SKU, Name, Category, Launch, M1, M2, M3 (Target is optional).", []);
+            return;
+          }
+          for (var r = 1; r < rows.length; r++) {
+            var fields = {};
+            Object.keys(colMap).forEach(function (field) { fields[field] = rows[r][colMap[field]]; });
+            var res = buildRecordFromFields(fields, "Row " + (r + 1), seen);
+            if (res.record) records.push(res.record); else errors.push(res.error);
+          }
+        }
+        finishUpload(records, errors);
+      } catch (err) {
+        showUploadBanner("err", "Could not read this file: " + err.message, []);
+      }
+    };
+    reader.onerror = function () { showUploadBanner("err", "Could not read this file.", []); };
+    reader.readAsText(file, "utf-8");
+  }
+
+  /* ============================== boot ============================== */
+
+  function boot() {
+    loadState();
+    renderToolbar();
+    renderResults();
+
+    document.getElementById("ll-add-btn").addEventListener("click", function () { openModal("add", null); });
+    document.getElementById("ll-settings-btn").addEventListener("click", function () {
+      state.settingsOpen = !state.settingsOpen;
+      renderSettingsPopover();
+    });
+    document.getElementById("ll-upload-btn").addEventListener("click", function () {
+      document.getElementById("ll-upload-input").click();
+    });
+    document.getElementById("ll-upload-input").addEventListener("change", function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (file) handleUploadFile(file);
+      e.target.value = "";
+    });
+    document.addEventListener("click", function (e) {
+      var pop = document.getElementById("ll-settings-pop");
+      var btn = document.getElementById("ll-settings-btn");
+      if (state.settingsOpen && pop && !pop.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+        closeSettings();
+      }
+      var catPanel = document.getElementById("ll-cat-dropdown-panel");
+      var catBtn = document.getElementById("ll-cat-dropdown-btn");
+      if (state.categoryDropdownOpen && catPanel && !catPanel.contains(e.target) && catBtn && e.target !== catBtn && !catBtn.contains(e.target)) {
+        state.categoryDropdownOpen = false;
+        renderToolbar();
+      }
+    });
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
+})();
+</script>
+
+<script>
+/* ============================== PWA glue ==============================
+   - ลงทะเบียน service worker เพื่อให้เปิดแบบออฟไลน์ได้
+   - ปุ่ม "Install app" สำหรับติดตั้งลงเครื่อง (Android/Chrome/Edge)
+   - แจ้งเตือนเมื่อมีเวอร์ชันใหม่
+   ==================================================================== */
+(function () {
+  "use strict";
+
+  function toast(message, actionLabel, onAction) {
+    var el = document.createElement("div");
+    el.className = "ll-toast";
+    el.appendChild(document.createTextNode(message));
+    if (actionLabel) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = actionLabel;
+      b.addEventListener("click", function () { el.remove(); onAction && onAction(); });
+      el.appendChild(b);
+    }
+    document.body.appendChild(el);
+    if (!actionLabel) setTimeout(function () { el.remove(); }, 3200);
+    return el;
+  }
+
+  /* ---------- ปุ่มติดตั้ง ---------- */
+  var deferredPrompt = null;
+  var actions = document.querySelector(".ll-header-actions");
+  var installBtn = null;
+
+  if (actions) {
+    installBtn = document.createElement("button");
+    installBtn.type = "button";
+    installBtn.id = "ll-install-btn";
+    installBtn.className = "ll-btn";
+    installBtn.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+      'stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/>' +
+      '<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg> Install app';
+    actions.insertBefore(installBtn, actions.firstChild);
+
+    installBtn.addEventListener("click", function () {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function () {
+        deferredPrompt = null;
+        installBtn.classList.remove("show");
+      });
+    });
+  }
+
+  window.addEventListener("beforeinstallprompt", function (e) {
+    e.preventDefault();
+    deferredPrompt = e;
+    if (installBtn) installBtn.classList.add("show");
+  });
+
+  window.addEventListener("appinstalled", function () {
+    deferredPrompt = null;
+    if (installBtn) installBtn.classList.remove("show");
+    toast("Installed — you can now open Lifecycle Ledger from your home screen.");
+  });
+
+  /* ---------- service worker ---------- */
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("./sw.js").then(function (reg) {
+        reg.addEventListener("updatefound", function () {
+          var sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener("statechange", function () {
+            if (sw.state === "installed" && navigator.serviceWorker.controller) {
+              toast("A new version is available.", "Reload", function () {
+                sw.postMessage({ type: "SKIP_WAITING" });
+              });
+            }
+          });
+        });
+      }).catch(function () { /* offline support unavailable — app still works */ });
+
+      var refreshing = false;
+      navigator.serviceWorker.addEventListener("controllerchange", function () {
+        if (refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      });
+    });
+  }
+})();
+</script>
+</body>
+</html>
