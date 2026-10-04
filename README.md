@@ -1,5 +1,7 @@
 # Lifecycle Ledger — PLC Dashboard
 
+> **Also in this repo:** [`knowledge-vault/`](knowledge-vault/) — *คลังความรู้*, a PWA that saves links, text, images and PDFs and uses Claude to summarise them into your own categories.
+
 An installable dashboard for tracking **Product Life Cycle (PLC)** across a menu or product
 portfolio. It classifies every SKU into a life-cycle stage, measures performance against a
 sales target, and recommends an action plan for each stage.

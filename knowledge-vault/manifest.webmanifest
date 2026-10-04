@@ -1,0 +1,37 @@
+{
+  "name": "คลังความรู้ — Knowledge Vault",
+  "short_name": "คลังความรู้",
+  "description": "เก็บลิงก์ ข้อความ รูปภาพ และไฟล์ PDF แล้วให้ AI สรุปและจัดเข้าหมวดความรู้ที่คุณกำหนดเอง",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#F4EFE4",
+  "theme_color": "#2B3A67",
+  "lang": "th",
+  "dir": "ltr",
+  "categories": ["productivity", "education", "utilities"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "share_target": {
+    "action": "./share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": ["image/*", "application/pdf", "text/*", ".md", ".csv", ".json", ".txt", ".html"]
+        }
+      ]
+    }
+  }
+}

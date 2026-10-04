@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>คลังความรู้</title>
+<meta name="description" content="เก็บลิงก์ ข้อความ รูปภาพ และไฟล์ PDF แล้วให้ AI สรุปและจัดเข้าหมวดความรู้ที่คุณกำหนดเอง"/>
+
+<link rel="manifest" href="./manifest.webmanifest"/>
+<meta name="theme-color" content="#2B3A67" media="(prefers-color-scheme: light)"/>
+<meta name="theme-color" content="#14172A" media="(prefers-color-scheme: dark)"/>
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png"/>
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="คลังความรู้"/>
+
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Noto+Serif+Thai:wght@600;700&display=swap" rel="stylesheet"/>
+
+<style>
+/* ==========================================================================
+   คลังความรู้ — design tokens
+   โทน "ห้องสมุด": กระดาษงาช้าง + น้ำเงินหมึก + ส้มหญ้าฝรั่น (ปุ่มหลัก)
+   ========================================================================== */
+:root {
+  --bg: #F4EFE4;
+  --surface: #FFFDF8;
+  --surface-2: #EDE6D7;
+  --border: #E0D7C4;
+  --border-strong: #CBBFA7;
+  --text: #1F2237;
+  --text-muted: #5A5D70;
+  --text-faint: #8C8D9A;
+
+  --ink: #2B3A67;
+  --ink-strong: #1D2850;
+  --ink-soft: #E1E5F2;
+  --saffron: #D98A1F;
+  --saffron-strong: #B36F12;
+  --saffron-soft: #F8E7CC;
+  --sage: #5E8C7A;
+  --sage-soft: #DCEAE3;
+  --danger: #B5403A;
+  --danger-soft: #F5DEDB;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 1px 2px rgba(31,34,55,.06), 0 4px 14px rgba(31,34,55,.06);
+  --shadow-lg: 0 10px 40px rgba(31,34,55,.18);
+  --font-body: "IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Noto Serif Thai", Georgia, serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14172A; --surface: #1C2036; --surface-2: #252A44; --border: #2F3552; --border-strong: #434A6E;
+    --text: #ECE9E0; --text-muted: #AAAAB8; --text-faint: #7C7F94;
+    --ink: #9FB0E6; --ink-strong: #C4D0F5; --ink-soft: #2A3258;
+    --saffron: #EDA544; --saffron-strong: #F4B964; --saffron-soft: #3E3020;
+    --sage: #8FC0AC; --sage-soft: #1F3530; --danger: #E57D76; --danger-soft: #3F2228;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+    --shadow-lg: 0 10px 40px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14172A; --surface: #1C2036; --surface-2: #252A44; --border: #2F3552; --border-strong: #434A6E;
+  --text: #ECE9E0; --text-muted: #AAAAB8; --text-faint: #7C7F94;
+  --ink: #9FB0E6; --ink-strong: #C4D0F5; --ink-soft: #2A3258;
+  --saffron: #EDA544; --saffron-strong: #F4B964; --saffron-soft: #3E3020;
+  --sage: #8FC0AC; --sage-soft: #1F3530; --danger: #E57D76; --danger-soft: #3F2228;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.25);
+  --shadow-lg: 0 10px 40px rgba(0,0,0,.5);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--ink); }
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.3; margin: 0; }
+.muted { color: var(--text-muted); }
+.faint { color: var(--text-faint); }
+.hidden { display: none !important; }
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 7px; justify-content: center;
+  border: 1px solid var(--border-strong); background: var(--surface);
+  padding: 8px 14px; border-radius: 999px; font-weight: 600; font-size: 14px;
+  cursor: pointer; white-space: nowrap; transition: background .15s, border-color .15s;
+}
+.btn:hover { background: var(--surface-2); }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn-primary { background: var(--saffron); border-color: var(--saffron); color: #fff; }
+.btn-primary:hover { background: var(--saffron-strong); border-color: var(--saffron-strong); }
+:root[data-theme="dark"] .btn-primary { color: #1b1306; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn-primary { color: #1b1306; } }
+.btn-ink { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.btn-ink:hover { background: var(--ink-strong); }
+.btn-ghost { background: transparent; border-color: transparent; }
+.btn-ghost:hover { background: var(--surface-2); }
+.btn-danger { color: var(--danger); border-color: var(--danger-soft); }
+.btn-danger:hover { background: var(--danger-soft); }
+.btn-sm { padding: 5px 11px; font-size: 13px; }
+.icon-btn { padding: 8px; width: 38px; height: 38px; }
+.btn svg, .icon { width: 18px; height: 18px; flex: none; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px max(20px, env(safe-area-inset-right)) 12px max(20px, env(safe-area-inset-left));
+  padding-top: max(12px, env(safe-area-inset-top));
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); flex: none; }
+.brand img { width: 34px; height: 34px; border-radius: 9px; }
+.brand b { font-family: var(--font-display); font-size: 19px; }
+.search {
+  flex: 1; max-width: 520px; display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 0 14px;
+}
+.search input { border: none; outline: none; background: transparent; padding: 9px 0; width: 100%; }
+.search:focus-within { border-color: var(--ink); }
+.top-actions { display: flex; gap: 8px; margin-left: auto; }
+#install-btn { display: none; }
+#install-btn.show { display: inline-flex; }
+
+/* ---------- layout ---------- */
+.layout {
+  display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 28px;
+  max-width: 1320px; margin: 0 auto;
+  padding: 24px max(20px, env(safe-area-inset-right)) max(80px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+}
+.side { position: sticky; top: 84px; align-self: start; display: flex; flex-direction: column; gap: 4px; }
+.side-label { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: var(--text-faint); margin: 14px 10px 4px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  border: none; background: transparent; text-align: left; cursor: pointer;
+  padding: 8px 10px; border-radius: var(--radius-sm); font-weight: 500;
+}
+.nav-item:hover { background: var(--surface-2); }
+.nav-item.active { background: var(--ink-soft); color: var(--ink-strong); font-weight: 700; }
+.nav-item .dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.nav-item .count { margin-left: auto; font-size: 12px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.nav-item span.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- main ---------- */
+.page-head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.page-head h1 { font-size: 28px; }
+.page-head .desc { margin: 4px 0 0; color: var(--text-muted); max-width: 70ch; }
+.page-head .actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+.digest {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px 24px; margin-bottom: 22px; box-shadow: var(--shadow);
+  border-top: 4px solid var(--cat-color, var(--ink));
+}
+.digest-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.digest-head h2 { font-size: 18px; }
+.digest-head .meta { font-size: 13px; color: var(--text-faint); }
+.digest-head .btn { margin-left: auto; }
+.digest-body { margin-top: 10px; max-height: 420px; overflow: hidden; position: relative; }
+.digest-body.expanded { max-height: none; }
+.digest-body:not(.expanded)::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 80px;
+  background: linear-gradient(transparent, var(--surface));
+}
+.digest-empty { color: var(--text-muted); margin: 8px 0 0; }
+
+.prose h1, .prose h2, .prose h3 { margin: 18px 0 6px; }
+.prose h1 { font-size: 20px; } .prose h2 { font-size: 17px; } .prose h3 { font-size: 15.5px; }
+.prose p { margin: 6px 0; }
+.prose ul, .prose ol { margin: 6px 0; padding-left: 22px; }
+.prose li { margin: 3px 0; }
+.prose blockquote { margin: 8px 0; padding: 4px 14px; border-left: 3px solid var(--saffron); color: var(--text-muted); }
+.prose code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+.prose .ref {
+  display: inline-block; font-size: 11.5px; font-weight: 700; padding: 0 6px; border-radius: 6px;
+  background: var(--ink-soft); color: var(--ink-strong); text-decoration: none; cursor: pointer; vertical-align: 1px;
+}
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px; box-shadow: var(--shadow); cursor: pointer; text-align: left; width: 100%;
+  display: flex; flex-direction: column; gap: 8px; transition: transform .12s, border-color .12s;
+  border-left: 4px solid var(--cat-color, var(--border-strong));
+}
+.card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+.card-top { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-faint); }
+.card-top .cat { font-weight: 700; color: var(--text-muted); }
+.card h3 { font-family: var(--font-body); font-size: 16px; font-weight: 700; }
+.card p { margin: 0; color: var(--text-muted); font-size: 14px;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.card .thumb { width: 100%; height: 130px; object-fit: cover; border-radius: var(--radius-sm); background: var(--surface-2); }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-size: 12px; padding: 1px 9px; border-radius: 999px; background: var(--surface-2); color: var(--text-muted); }
+.badge { font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-left: auto; }
+.badge.pending { background: var(--saffron-soft); color: var(--saffron-strong); }
+.badge.processing { background: var(--ink-soft); color: var(--ink-strong); }
+.badge.error { background: var(--danger-soft); color: var(--danger); }
+.src-icons { display: inline-flex; gap: 4px; }
+.src-icons svg { width: 15px; height: 15px; }
+
+.empty {
+  text-align: center; padding: 60px 20px; color: var(--text-muted);
+  border: 2px dashed var(--border); border-radius: var(--radius);
+}
+.empty h2 { font-size: 20px; color: var(--text); margin-bottom: 6px; }
+
+.spin { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- dialogs ---------- */
+dialog {
+  border: none; padding: 0; border-radius: 18px; background: var(--surface); color: var(--text);
+  width: min(720px, calc(100vw - 24px)); max-height: calc(100dvh - 32px);
+  box-shadow: var(--shadow-lg);
+}
+dialog::backdrop { background: rgba(20, 23, 42, .45); }
+.dlg { display: flex; flex-direction: column; max-height: calc(100dvh - 32px); }
+.dlg-head { display: flex; align-items: center; gap: 10px; padding: 18px 22px 12px; border-bottom: 1px solid var(--border); }
+.dlg-head h2 { font-size: 20px; }
+.dlg-head .btn { margin-left: auto; }
+.dlg-body { padding: 18px 22px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+.dlg-foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding: 12px 22px 18px; border-top: 1px solid var(--border); }
+.dlg-foot .left { margin-right: auto; display: flex; gap: 8px; }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field > label, .field-label { font-weight: 600; font-size: 14px; }
+.field small { color: var(--text-faint); font-size: 12.5px; }
+.input, textarea.input, select.input {
+  width: 100%; border: 1px solid var(--border-strong); background: var(--surface);
+  border-radius: var(--radius-sm); padding: 9px 12px; outline: none;
+}
+.input:focus { border-color: var(--ink); box-shadow: 0 0 0 3px var(--ink-soft); }
+textarea.input { resize: vertical; min-height: 90px; }
+
+.drop {
+  border: 2px dashed var(--border-strong); border-radius: var(--radius); padding: 20px;
+  text-align: center; color: var(--text-muted); cursor: pointer; background: var(--bg);
+}
+.drop.over { border-color: var(--saffron); background: var(--saffron-soft); }
+.file-list { display: flex; flex-direction: column; gap: 6px; }
+.file-row {
+  display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--radius-sm);
+  background: var(--surface-2); font-size: 14px;
+}
+.file-row img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; }
+.file-row .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.file-row .fsize { color: var(--text-faint); font-size: 12px; flex: none; }
+
+.detail-meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13.5px; color: var(--text-muted); }
+.section-title { font-size: 13px; font-weight: 700; letter-spacing: .05em; color: var(--text-faint); margin: 4px 0 -6px; }
+.summary-box { background: var(--bg); border-radius: var(--radius-sm); padding: 14px 16px; }
+.keypoints { margin: 0; padding-left: 20px; }
+.keypoints li { margin: 4px 0; }
+.attach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.attach {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;
+  background: var(--surface-2); display: flex; flex-direction: column; text-decoration: none; color: var(--text);
+}
+.attach img { width: 100%; height: 100px; object-fit: cover; }
+.attach .ph { height: 100px; display: grid; place-items: center; color: var(--text-muted); font-weight: 700; font-size: 13px; }
+.attach span { font-size: 12px; padding: 5px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-box { white-space: pre-wrap; background: var(--bg); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 14px; max-height: 220px; overflow: auto; }
+.error-box { background: var(--danger-soft); color: var(--danger); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 14px; }
+
+.cat-row {
+  display: grid; grid-template-columns: 42px 1fr auto; gap: 10px; align-items: start;
+  padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg);
+}
+.cat-row input[type=color] { width: 42px; height: 38px; border: none; padding: 0; background: none; cursor: pointer; }
+.cat-row .stack { display: flex; flex-direction: column; gap: 6px; }
+
+.banner {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  background: var(--saffron-soft); color: var(--text); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 18px;
+}
+.banner .btn { margin-left: auto; }
+
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: max(18px, env(safe-area-inset-bottom)); z-index: 300;
+  background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 999px;
+  font-weight: 600; font-size: 14px; box-shadow: var(--shadow-lg); max-width: calc(100vw - 32px);
+  display: flex; gap: 12px; align-items: center;
+}
+.toast button { background: var(--bg); color: var(--text); border: none; border-radius: 999px; padding: 4px 12px; font-weight: 700; cursor: pointer; }
+
+.fab {
+  display: none; position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom));
+  width: 58px; height: 58px; border-radius: 50%; border: none; z-index: 30;
+  background: var(--saffron); color: #fff; box-shadow: var(--shadow-lg); cursor: pointer;
+}
+.fab svg { width: 26px; height: 26px; }
+
+/* ---------- mobile ---------- */
+@media (max-width: 860px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 14px; padding-top: 12px; padding-left: 16px; padding-right: 16px; }
+  .side {
+    position: static; flex-direction: row; overflow-x: auto; gap: 6px; padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .side::-webkit-scrollbar { display: none; }
+  .side-label { display: none; }
+  .nav-item { width: auto; flex: none; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; background: var(--surface); }
+  .nav-item .count { margin-left: 4px; }
+  .topbar { flex-wrap: wrap; padding-left: 16px; padding-right: 16px; gap: 10px; }
+  .search { order: 3; max-width: none; flex-basis: 100%; }
+  .brand b { font-size: 17px; }
+  #add-btn-top { display: none; }
+  .fab { display: grid; place-items: center; }
+  .toast { bottom: max(90px, calc(env(safe-area-inset-bottom) + 76px)); }
+  .page-head h1 { font-size: 23px; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .digest { padding: 16px; }
+  .dlg-head, .dlg-body, .dlg-foot { padding-left: 16px; padding-right: 16px; }
+  .cat-row { grid-template-columns: 36px 1fr; }
+  .cat-row .row-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="brand" href="./" aria-label="คลังความรู้ หน้าแรก">
+    <img src="./icons/icon-192.png" alt=""/>
+    <b>คลังความรู้</b>
+  </a>
+  <label class="search">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="search" type="search" placeholder="ค้นหาในคลัง: ชื่อเรื่อง สรุป แท็ก…" autocomplete="off"/>
+  </label>
+  <div class="top-actions">
+    <button class="btn" id="install-btn" type="button">ติดตั้งแอป</button>
+    <button class="btn icon-btn btn-ghost" id="settings-btn" type="button" title="ตั้งค่า" aria-label="ตั้งค่า">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+    <button class="btn btn-primary" id="add-btn-top" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+      เพิ่มความรู้
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="side" id="side" aria-label="หมวดความรู้"></nav>
+  <main id="main"></main>
+</div>
+
+<button class="fab" id="fab" type="button" aria-label="เพิ่มความรู้">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+</button>
+
+<!-- ===================== เพิ่มความรู้ ===================== -->
+<dialog id="dlg-add">
+  <form class="dlg" id="add-form" method="dialog">
+    <div class="dlg-head">
+      <h2>เพิ่มความรู้ใหม่</h2>
+      <button class="btn btn-ghost icon-btn" type="button" data-close aria-label="ปิด">✕</button>
+    </div>
+    <div class="dlg-body">
+      <div class="field">
+        <label for="add-url">ลิงก์บทความ / วิดีโอ / เว็บไซต์</label>
+        <input class="input" id="add-url" type="url" inputmode="url" placeholder="https://…"/>
+      </div>
+      <div class="field">
+        <label for="add-text">ข้อความ / โน้ต / เนื้อหาที่คัดลอกมา</label>
+        <textarea class="input" id="add-text" rows="4" placeholder="วางเนื้อหา หรือจดว่าทำไมเรื่องนี้ถึงน่าสนใจ…"></textarea>
+      </div>
+      <div class="field">
+        <span class="field-label">ไฟล์แนบ (รูปภาพ, PDF, ไฟล์ข้อความ ฯลฯ)</span>
+        <div class="drop" id="drop" tabindex="0" role="button">
+          ลากไฟล์มาวาง • กดเพื่อเลือกไฟล์ • หรือกด Ctrl/⌘+V เพื่อวางรูป
+          <input type="file" id="add-files" multiple hidden/>
+        </div>
+        <div class="file-list" id="add-file-list"></div>
+      </div>
+      <div class="field">
+        <label for="add-cat">หมวด</label>
+        <select class="input" id="add-cat"></select>
+        <small>ปล่อยเป็น "ให้ AI เลือกหมวด" แล้วระบบจะจัดหมวดให้ตามคำอธิบายหมวดที่คุณตั้งไว้</small>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <button class="btn" type="button" id="add-save-only">บันทึกไว้ก่อน (ยังไม่สรุป)</button>
+      <button class="btn btn-primary" type="submit" id="add-submit">บันทึกและให้ AI สรุป</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ===================== รายละเอียด ===================== -->
+<dialog id="dlg-item">
+  <div class="dlg">
+    <div class="dlg-head">
+      <h2 id="item-title">—</h2>
+      <button class="btn btn-ghost icon-btn" type="button" data-close aria-label="ปิด">✕</button>
+    </div>
+    <div class="dlg-body" id="item-body"></div>
+    <div class="dlg-foot">
+      <div class="left">
+        <button class="btn btn-danger btn-sm" type="button" id="item-delete">ลบ</button>
+      </div>
+      <button class="btn btn-sm" type="button" id="item-edit">แก้ไขเอง</button>
+      <button class="btn btn-ink btn-sm" type="button" id="item-reprocess">ให้ AI สรุปใหม่</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ===================== จัดการหมวด ===================== -->
+<dialog id="dlg-cats">
+  <div class="dlg">
+    <div class="dlg-head">
+      <h2>จัดการหมวดความรู้</h2>
+      <button class="btn btn-ghost icon-btn" type="button" data-close aria-label="ปิด">✕</button>
+    </div>
+    <div class="dlg-body">
+      <p class="muted" style="margin:0">ตั้งชื่อหมวดและเขียน <b>คำอธิบาย</b> ว่าหมวดนี้เก็บเรื่องอะไร — AI จะใช้คำอธิบายนี้ตัดสินว่าความรู้แต่ละชิ้นควรอยู่หมวดไหน</p>
+      <div id="cat-list" style="display:flex;flex-direction:column;gap:10px"></div>
+      <button class="btn" type="button" id="cat-add">+ เพิ่มหมวดใหม่</button>
+    </div>
+    <div class="dlg-foot">
+      <button class="btn btn-primary" type="button" id="cat-save">บันทึกหมวด</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ===================== ตั้งค่า ===================== -->
+<dialog id="dlg-settings">
+  <div class="dlg">
+    <div class="dlg-head">
+      <h2>ตั้งค่า</h2>
+      <button class="btn btn-ghost icon-btn" type="button" data-close aria-label="ปิด">✕</button>
+    </div>
+    <div class="dlg-body">
+      <div class="field">
+        <label for="set-key">Claude API key</label>
+        <input class="input" id="set-key" type="password" autocomplete="off" placeholder="sk-ant-…"/>
+        <small>สร้างได้ที่ console.anthropic.com → API Keys • คีย์ถูกเก็บไว้ในเครื่องนี้เท่านั้น และส่งตรงไปยัง api.anthropic.com</small>
+      </div>
+      <div class="field">
+        <label for="set-model">โมเดลที่ใช้สรุป</label>
+        <select class="input" id="set-model">
+          <option value="claude-opus-5-5">Claude Opus 5.5 — สรุปละเอียดที่สุด (แนะนำ)</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 — เร็วและประหยัดกว่า</option>
+          <option value="claude-haiku-4-5">Claude Haiku 4.5 — เร็วที่สุด ถูกที่สุด</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="set-lang">ภาษาของสรุป</label>
+        <select class="input" id="set-lang">
+          <option value="th">ภาษาไทย</option>
+          <option value="en">English</option>
+          <option value="source">ตามภาษาของต้นฉบับ</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="set-theme">ธีม</label>
+        <select class="input" id="set-theme">
+          <option value="">ตามระบบ</option>
+          <option value="light">สว่าง</option>
+          <option value="dark">มืด</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-sm" type="button" id="set-test">ทดสอบการเชื่อมต่อ</button>
+        <span id="set-test-result" class="muted" style="font-size:14px"></span>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--border);width:100%;margin:4px 0"/>
+      <div class="field">
+        <span class="field-label">สำรอง / ย้ายข้อมูล</span>
+        <small>ข้อมูลทั้งหมด (รวมไฟล์แนบ) เก็บอยู่ในเบราว์เซอร์ของเครื่องนี้ ควรสำรองเป็นไฟล์ไว้เป็นระยะ</small>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+          <button class="btn btn-sm" type="button" id="set-export">ส่งออกไฟล์สำรอง (.json)</button>
+          <button class="btn btn-sm" type="button" id="set-export-md">ส่งออกเป็น Markdown</button>
+          <button class="btn btn-sm" type="button" id="set-import">นำเข้าไฟล์สำรอง</button>
+          <input type="file" id="set-import-file" accept=".json,application/json" hidden/>
+        </div>
+      </div>
+      <div class="field">
+        <span class="field-label" style="color:var(--danger)">ล้างข้อมูล</span>
+        <div><button class="btn btn-sm btn-danger" type="button" id="set-wipe">ลบคลังความรู้ทั้งหมดในเครื่องนี้</button></div>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <button class="btn btn-primary" type="button" id="set-save">บันทึก</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ===================== แก้ไขเอง ===================== -->
+<dialog id="dlg-edit">
+  <form class="dlg" id="edit-form" method="dialog">
+    <div class="dlg-head">
+      <h2>แก้ไขความรู้</h2>
+      <button class="btn btn-ghost icon-btn" type="button" data-close aria-label="ปิด">✕</button>
+    </div>
+    <div class="dlg-body">
+      <div class="field"><label for="ed-title">ชื่อเรื่อง</label><input class="input" id="ed-title"/></div>
+      <div class="field"><label for="ed-summary">สรุป</label><textarea class="input" id="ed-summary" rows="5"></textarea></div>
+      <div class="field"><label for="ed-points">ประเด็นสำคัญ (บรรทัดละ 1 ข้อ)</label><textarea class="input" id="ed-points" rows="5"></textarea></div>
+      <div class="field"><label for="ed-tags">แท็ก (คั่นด้วยจุลภาค)</label><input class="input" id="ed-tags"/></div>
+      <div class="field"><label for="ed-note">โน้ตของฉัน</label><textarea class="input" id="ed-note" rows="3"></textarea></div>
+    </div>
+    <div class="dlg-foot">
+      <button class="btn" type="button" data-close>ยกเลิก</button>
+      <button class="btn btn-primary" type="submit">บันทึก</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
