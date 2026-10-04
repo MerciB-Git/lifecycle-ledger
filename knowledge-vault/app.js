@@ -183,6 +183,37 @@ async function thumbFor(fileId) {
   return url;
 }
 
+/* บันทึกไฟล์แนบลงเครื่อง — ใช้ Web Share API ก่อนถ้ารองรับ (เชื่อถือได้กว่าบนมือถือ โดยเฉพาะ
+   iOS Safari ที่มักเพิกเฉยต่อ <a download> กับไฟล์วิดีโอ) แล้วค่อย fallback เป็นการดาวน์โหลดปกติ */
+async function downloadFile(fileId, fallbackName) {
+  let f;
+  try {
+    f = await db.get("files", fileId);
+  } catch (err) {
+    toast("ดาวน์โหลดไม่สำเร็จ: " + (err?.message || err));
+    return;
+  }
+  if (!f || !f.blob) { toast("ไม่พบไฟล์นี้ — อาจถูกลบไปแล้ว"); return; }
+  const name = f.name || fallbackName || "file";
+  if (navigator.canShare) {
+    try {
+      const file = new File([f.blob], name, { type: f.type || f.blob.type || "application/octet-stream" });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+    } catch (err) {
+      if (err?.name === "AbortError") return; // ผู้ใช้ปิดหน้าต่างแชร์เอง — ไม่ต้อง fallback
+      // เบราว์เซอร์บางตัวรองรับ canShare แต่ share() ล้มเหลวจริง — ลองวิธีดาวน์โหลดปกติต่อ
+    }
+  }
+  try {
+    download(name, f.blob, f.type);
+  } catch (err) {
+    toast("ดาวน์โหลดไม่สำเร็จ: " + (err?.message || err));
+  }
+}
+
 /* ================================================================ Claude == */
 let _Anthropic = null;
 async function getClient() {
@@ -777,6 +808,7 @@ const ICONS = {
   pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
   image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>',
   text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
 };
 
 function matchesQuery(item, q) {
@@ -1024,10 +1056,15 @@ async function fillItem(id) {
   const attachments = await Promise.all(files.map(async (f) => {
     const url = await thumbFor(f.id);
     const isImg = (f.type || "").startsWith("image/");
-    const dl = isImg || f.type === "application/pdf" ? "" : ` download="${esc(f.name)}"`;
-    return `<a class="attach" href="${url}" target="_blank" rel="noopener"${dl}>
-      ${isImg ? `<img src="${url}" alt="${esc(f.name)}"/>` : `<div class="ph">${f.type === "application/pdf" ? "PDF" : esc((f.name.split(".").pop() || "FILE").toUpperCase())}</div>`}
-      <span title="${esc(f.name)}">${esc(f.name)}</span></a>`;
+    return `<div class="attach">
+      <a class="attach-view" href="${url}" target="_blank" rel="noopener" aria-label="เปิดดู ${esc(f.name)}">
+        ${isImg ? `<img src="${url}" alt="${esc(f.name)}"/>` : `<div class="ph">${f.type === "application/pdf" ? "PDF" : esc((f.name.split(".").pop() || "FILE").toUpperCase())}</div>`}
+      </a>
+      <div class="attach-foot">
+        <span title="${esc(f.name)}">${esc(f.name)}</span>
+        <button type="button" class="attach-dl" data-file="${esc(f.id)}" data-name="${esc(f.name)}" aria-label="ดาวน์โหลด ${esc(f.name)}" title="ดาวน์โหลดลงเครื่อง">${ICONS.download}</button>
+      </div>
+    </div>`;
   }));
 
   const body = [];
@@ -1336,6 +1373,8 @@ function bindEvents() {
     toast(item.categoryId ? `ย้ายไปหมวด "${catById(item.categoryId).name}" แล้ว` : "นำออกจากหมวดแล้ว");
   });
   $("#item-body").addEventListener("click", async (e) => {
+    const dlBtn = e.target.closest(".attach-dl");
+    if (dlBtn) { downloadFile(dlBtn.dataset.file, dlBtn.dataset.name); return; }
     if (!e.target.closest("#item-create-cat")) return;
     const item = state.items.find((i) => i.id === openItemId);
     if (!item?.suggestedCategory) return;
