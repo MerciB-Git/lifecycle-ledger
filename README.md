@@ -1,6 +1,6 @@
 # Lifecycle Ledger — PLC Dashboard
 
-> **Also in this repo:** [`knowledge-vault/`](knowledge-vault/) — *คลังความรู้*, a PWA that saves links, text, images and PDFs and uses Claude to summarise them into your own categories.
+> **See also:** [Knowledge Vault](https://github.com/MerciB-Git/knowledge-vault) — *คลังความรู้*, a PWA that saves links, text, images and PDFs and uses Claude to summarise them into your own categories. It used to live in this repo under `knowledge-vault/`, and was moved to its own repository so the two apps don't share an origin (two PWAs sharing one origin can fight over service-worker scope and break installs).
 
 An installable dashboard for tracking **Product Life Cycle (PLC)** across a menu or product
 portfolio. It classifies every SKU into a life-cycle stage, measures performance against a
