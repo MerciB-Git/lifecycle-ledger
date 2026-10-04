@@ -2,7 +2,7 @@
    - แคชไฟล์แอปให้เปิดได้แบบออฟไลน์ (cache-first + อัปเดตเบื้องหลัง)
    - รับเนื้อหาที่ "แชร์" มาจากแอปอื่น (Web Share Target) แล้วส่งต่อให้หน้าแอป */
 
-var CACHE = "knowledge-vault-v1";
+var CACHE = "knowledge-vault-v2";
 
 var ASSETS = [
   "./",

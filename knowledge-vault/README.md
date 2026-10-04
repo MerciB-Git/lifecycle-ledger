@@ -32,6 +32,17 @@ It's a PWA, so you can install it on your phone or computer like an app. Your da
   (overview → themed sections → key conclusions → contradictions and open questions). Every claim has a
   `[n]` citation you can click to open the source item, and you'll see a notice when the category changed after the last summary
 
+**Ask / AI mentor** 💬
+- **🧭 AI mentor**: get advice, plans and help with problems. The mentor takes on the role of an expert in the chosen
+  category (a finance category gives you a finance mentor, a health category a health coach, and so on). It builds on
+  what you saved, cites it as `[n]`, and adds its own expertise while saying clearly which parts are not from your vault.
+  It asks follow-up questions when it needs more context, gives steps you can act on, and points out gaps in the category.
+- **🔎 Ask the vault**: answers only from what you saved, with a citation for every point. If the vault has no answer, it says so.
+- Scope is the whole vault or a single category (or press "ปรึกษาพี่เลี้ยงหมวดนี้" on a category page)
+- Multi-turn conversations with streamed replies; chats are saved, reopenable, and included in backups
+- Each chat uses a snapshot of the vault taken when it starts (so citation numbers stay stable and prompt caching
+  lowers the cost of later turns). Start a new chat to use the latest data.
+
 **Other**
 - Searches titles, summaries, key points, tags, notes, and file names
 - Items you save without summarizing, or that fail, wait in the "รอสรุป" (to summarize) list, and you can summarize them all at once
@@ -93,13 +104,15 @@ knowledge-vault/
   ids (or `none`). If `web_fetch` returns `pause_turn`, the request is sent again until it finishes.
 - **Category overview**: sends the summaries of every item in the category, and gets back Markdown with `[#n]`
   citations that the app turns into links to each item.
+- **Ask / mentor**: sends the in-scope entries (up to the 400 most recent) plus category overviews as a system block
+  with `cache_control`, and streams the reply. Assistant content blocks are stored and replayed unchanged (append-only history).
 - Opus/Sonnet use `output_config.effort: "medium"` and `fallbacks: "default"`, so that if a request is
   refused by mistake, the server tries a backup model automatically.
 
 ### Data storage
 
 IndexedDB database `knowledge-vault`:
-`items` (knowledge entries) · `categories` (categories + overview summaries) · `files` (attachments as Blobs)
+`items` (knowledge entries) · `categories` (categories + overview summaries) · `files` (attachments as Blobs) · `chats` (mentor / Q&A conversations)
 
 The `kv-share-inbox` database briefly holds content shared from other apps until the app picks it up.
 

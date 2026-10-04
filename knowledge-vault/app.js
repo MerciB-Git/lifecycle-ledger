@@ -78,13 +78,16 @@ const db = {
   open() {
     if (this._p) return this._p;
     this._p = new Promise((resolve, reject) => {
-      const req = indexedDB.open("knowledge-vault", 1);
-      req.onupgradeneeded = () => {
+      const req = indexedDB.open("knowledge-vault", 2);
+      req.onupgradeneeded = (e) => {
         const d = req.result;
-        d.createObjectStore("items", { keyPath: "id" });
-        d.createObjectStore("categories", { keyPath: "id" });
-        const f = d.createObjectStore("files", { keyPath: "id" });
-        f.createIndex("itemId", "itemId");
+        if (e.oldVersion < 1) {
+          d.createObjectStore("items", { keyPath: "id" });
+          d.createObjectStore("categories", { keyPath: "id" });
+          const f = d.createObjectStore("files", { keyPath: "id" });
+          f.createIndex("itemId", "itemId");
+        }
+        if (e.oldVersion < 2) d.createObjectStore("chats", { keyPath: "id" });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -120,6 +123,11 @@ const state = {
   view: "all",         // "all" | "pending" | "uncat" | <categoryId>
   query: "",
   digestExpanded: false,
+  chats: [],
+  chatId: null,          // แชทที่เปิดอยู่ (null = หน้าเริ่มแชทใหม่)
+  chatScope: "all",      // ขอบเขตของแชทใหม่: "all" | categoryId
+  chatMode: "mentor",    // "mentor" | "ask"
+  chatBusy: false,
   busyDigest: new Set(),
 };
 const thumbUrls = new Map(); // fileId -> objectURL
@@ -135,7 +143,8 @@ const DEFAULT_CATEGORIES = [
 ];
 
 async function loadAll() {
-  const [items, categories, files] = await Promise.all([db.all("items"), db.all("categories"), db.all("files")]);
+  const [items, categories, files, chats] = await Promise.all([db.all("items"), db.all("categories"), db.all("files"), db.all("chats")]);
+  state.chats = chats.sort((a, b) => b.updatedAt - a.updatedAt);
   if (!categories.length && !localStorage.getItem("kv-seeded")) {
     const now = Date.now();
     DEFAULT_CATEGORIES.forEach(([name, description], i) => categories.push({ id: uid("c"), name, description, color: PALETTE[i % PALETTE.length], order: i, createdAt: now }));
@@ -525,6 +534,243 @@ function renderMarkdown(md, refs) {
   return html.join("\n");
 }
 
+/* ======================================================= mentor & Q&A == */
+/* แชทกับคลังความรู้ 2 โหมด:
+   - "ask"    ถามจากคลัง: ตอบจากสิ่งที่บันทึกไว้เท่านั้น พร้อมอ้างอิง [#n]
+   - "mentor" พี่เลี้ยง AI: ให้คำแนะนำเชิงปฏิบัติ โดยยึดคลังเป็นฐาน + ความรู้ทั่วไปของ AI
+   แต่ละแชท "แช่แข็ง" ข้อมูลคลัง ณ ตอนเริ่มแชท เพื่อให้เลขอ้างอิงคงที่และ prompt cache ทำงานได้ */
+
+const MAX_CONTEXT_ITEMS = 400;
+
+const SYSTEM_ASK = `You answer questions using the user's personal knowledge vault, provided below as numbered entries [#n] (each one a summary of something the user saved) plus optional category overviews.
+
+Rules:
+- Answer from the vault. Cite every claim drawn from it inline as [#n] (e.g. "...works best in the morning [#4][#9]").
+- If the vault does not contain the answer, say so plainly, then — clearly labelled as general knowledge, not from the vault — add a brief answer if you can.
+- When entries disagree, show both sides with their citations.
+- Be concise and well structured: Markdown with short headings or bullet lists where they help. No preamble.`;
+
+const SYSTEM_MENTOR = `You are the user's personal mentor ("พี่เลี้ยง") — a warm, candid, experienced senior who gives practical guidance. Your expertise is shaped by the knowledge the user has collected, provided below as numbered entries [#n] plus optional category overviews. When the scope is a single category, take on the role of a seasoned mentor in that field (e.g. a finance category makes you a financial mentor; a health category, a health and lifestyle coach).
+
+How to mentor:
+- Ground your advice in the user's own vault first and cite it inline as [#n], so they can see which of their saved sources supports each point. You may add your own expertise beyond the vault; when you do, make it clear it is your own view rather than from their sources.
+- Understand the person before prescribing: if the question depends on circumstances you don't know (goals, constraints, current level, timeline), ask 1–3 focused questions — or give your best advice under stated assumptions and ask what to adjust.
+- Be concrete and actionable: prioritised next steps, small experiments, a simple plan or checklist, and the common pitfalls to watch for.
+- Be honest: point out trade-offs, risks and when an idea in their sources is weak or outdated. Encourage without flattering.
+- For medical, legal, tax or investment decisions with real stakes, give useful guidance but recommend confirming with a qualified professional.
+- Point out gaps — topics worth learning or saving next to strengthen their knowledge in this area.
+- Markdown, conversational tone, no long preamble.`;
+
+const CHAT_LANG = {
+  th: "Reply in Thai unless the user writes in another language.",
+  en: "Reply in English unless the user writes in another language.",
+  source: "Reply in the language the user writes in.",
+};
+
+function buildVaultContext(scope) {
+  const inScope = (i) => i.status === "done" && (scope === "all" || i.categoryId === scope);
+  const all = state.items.filter(inScope);
+  const items = all.slice(0, MAX_CONTEXT_ITEMS);
+  const cats = scope === "all" ? state.categories : state.categories.filter((c) => c.id === scope);
+  const lines = [];
+  const scopeCat = catById(scope);
+  lines.push(scopeCat
+    ? `Scope: the category "${scopeCat.name}" — ${scopeCat.description || "(no description)"}`
+    : `Scope: the whole vault. Categories: ${state.categories.map((c) => `${c.name} (${c.description || "no description"})`).join("; ") || "(none)"}`);
+  lines.push(`Entries provided: ${items.length}${all.length > items.length ? ` (most recent ${items.length} of ${all.length})` : ""}`);
+  const digests = cats.filter((c) => c.digest?.markdown);
+  if (digests.length) {
+    lines.push("\n=== Category overviews (written earlier; their [#n] numbers do NOT match the entries below — cite entries, not overviews) ===");
+    digests.forEach((c) => lines.push(`\n--- ${c.name} ---\n${c.digest.markdown.replace(/\[#\d+\]/g, "")}`));
+  }
+  lines.push("\n=== Entries ===");
+  items.forEach((e, n) => {
+    lines.push([
+      `\n[#${n + 1}] ${e.title || "(untitled)"}`,
+      `Category: ${catById(e.categoryId)?.name || "uncategorised"} · Saved: ${new Date(e.createdAt).toISOString().slice(0, 10)}`,
+      e.url ? `URL: ${e.url}` : "",
+      e.summary ? `Summary: ${e.summary}` : "",
+      e.keyPoints?.length ? "Key points:\n" + e.keyPoints.map((p) => `- ${p}`).join("\n") : "",
+      e.tags?.length ? `Tags: ${e.tags.join(", ")}` : "",
+      e.note ? `User's note: ${e.note.slice(0, 1500)}` : "",
+    ].filter(Boolean).join("\n"));
+  });
+  return { text: lines.join("\n"), refs: items.map((i) => i.id), count: items.length };
+}
+
+const STARTERS = {
+  mentor: [
+    "จากความรู้ที่ฉันเก็บไว้ ช่วยวางแผน 30 วันให้ฉันเริ่มลงมือทำ",
+    "ฉันควรเริ่มจากเรื่องไหนก่อน และควรเลี่ยงข้อผิดพลาดอะไร",
+    "ช่วยประเมินว่าความรู้ในหมวดนี้ยังขาดเรื่องอะไรที่ควรศึกษาเพิ่ม",
+    "ฉันมีปัญหาแบบนี้… ช่วยแนะนำหน่อย",
+  ],
+  ask: [
+    "สรุปประเด็นที่สำคัญที่สุด 5 ข้อจากที่ฉันเก็บไว้",
+    "แหล่งที่ฉันเก็บไว้ มีความเห็นที่ขัดแย้งกันเรื่องไหนบ้าง",
+    "ฉันเคยบันทึกอะไรเกี่ยวกับเรื่องนี้ไว้บ้าง:",
+  ],
+};
+
+const currentChat = () => state.chats.find((c) => c.id === state.chatId);
+function scrollChat() { requestAnimationFrame(() => { const el = $("#chat-log"); if (el) el.scrollTop = el.scrollHeight; }); }
+
+function renderMentor() {
+  const main = $("#main");
+  const chat = currentChat();
+  const parts = [];
+  if (!settings.apiKey) {
+    parts.push(`<div class="banner"><span>🔑 ใส่ <b>Claude API key</b> ก่อนเพื่อคุยกับพี่เลี้ยง AI</span>
+      <button class="btn btn-sm btn-ink" type="button" data-action="open-settings">ตั้งค่า</button></div>`);
+  }
+  parts.push(`<div class="page-head">
+      <div><h1>ถาม / พี่เลี้ยง AI</h1>
+        <p class="desc">คุยกับคลังความรู้ของคุณ — ถามหาคำตอบจากสิ่งที่เก็บไว้ หรือขอคำแนะนำจากพี่เลี้ยงประจำแต่ละหมวด</p></div>
+      <div class="actions">${chat ? `<button class="btn btn-sm btn-primary" type="button" data-action="chat-new">+ แชทใหม่</button>` : ""}</div>
+    </div>`);
+
+  const history = state.chats.length ? `<details class="chat-history" ${chat ? "" : "open"}>
+      <summary>แชทก่อนหน้า (${state.chats.length})</summary>
+      <div class="chat-history-list">${state.chats.map((c) => `
+        <div class="chat-history-row ${c.id === state.chatId ? "active" : ""}">
+          <button type="button" class="chat-history-open" data-action="chat-open" data-chat="${esc(c.id)}">
+            <span>${c.mode === "mentor" ? "🧭" : "🔎"} ${esc(c.title || "แชทใหม่")}</span>
+            <small>${esc(catById(c.scope)?.name || (c.scope === "all" ? "ทั้งคลัง" : "หมวดที่ถูกลบ"))} · ${fmtDateTime(c.updatedAt)}</small>
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" data-action="chat-delete" data-chat="${esc(c.id)}" aria-label="ลบแชท">✕</button>
+        </div>`).join("")}</div></details>` : "";
+
+  if (!chat) {
+    const scopeCount = state.items.filter((i) => i.status === "done" && (state.chatScope === "all" || i.categoryId === state.chatScope)).length;
+    parts.push(`<section class="chat-setup">
+        <div class="mode-switch" role="tablist">
+          <button type="button" role="tab" class="${state.chatMode === "mentor" ? "on" : ""}" data-action="chat-mode" data-mode="mentor">
+            <b>🧭 พี่เลี้ยง AI</b><small>ขอคำแนะนำ วางแผน แก้ปัญหา โดยอิงความรู้ที่คุณเก็บ + ประสบการณ์ของ AI</small></button>
+          <button type="button" role="tab" class="${state.chatMode === "ask" ? "on" : ""}" data-action="chat-mode" data-mode="ask">
+            <b>🔎 ถามจากคลัง</b><small>ตอบจากสิ่งที่คุณบันทึกไว้เท่านั้น พร้อมอ้างอิงแหล่งที่มา</small></button>
+        </div>
+        <div class="field">
+          <label for="chat-scope">${state.chatMode === "mentor" ? "พี่เลี้ยงด้าน" : "ค้นจาก"}</label>
+          <select class="input" id="chat-scope">
+            <option value="all" ${state.chatScope === "all" ? "selected" : ""}>ทุกหมวด (ทั้งคลัง)</option>
+            ${state.categories.map((c) => `<option value="${esc(c.id)}" ${c.id === state.chatScope ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+          </select>
+          <small>มีความรู้ที่สรุปแล้ว ${scopeCount} รายการในขอบเขตนี้${scopeCount ? "" : " — พี่เลี้ยงจะตอบจากความรู้ทั่วไปไปก่อน"}</small>
+        </div>
+        <div class="starters">${STARTERS[state.chatMode].map((t) => `<button type="button" class="tag starter" data-action="chat-starter" data-text="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+      </section>`);
+  } else {
+    const cat = catById(chat.scope);
+    parts.push(`<div class="chat-meta">
+        <span class="tag">${chat.mode === "mentor" ? "🧭 พี่เลี้ยง AI" : "🔎 ถามจากคลัง"}</span>
+        <span class="tag">${esc(cat?.name || "ทั้งคลัง")}</span>
+        <span class="faint">ใช้ข้อมูลคลัง ณ ${fmtDateTime(chat.createdAt)} (${chat.refs.length} รายการ) — เริ่มแชทใหม่เพื่อใช้ข้อมูลล่าสุด</span>
+      </div>
+      <div class="chat-log" id="chat-log">${chat.messages.map((m, i) => msgHtml(m, chat, i)).join("")}</div>`);
+  }
+
+  parts.push(`<form class="chat-input" onsubmit="return false">
+      <textarea class="input" id="chat-input" rows="2" placeholder="${chat?.mode === "ask" || (!chat && state.chatMode === "ask") ? "ถามอะไรก็ได้เกี่ยวกับสิ่งที่คุณเก็บไว้…" : "เล่าสถานการณ์หรือสิ่งที่อยากได้คำแนะนำ…"}" ${state.chatBusy ? "disabled" : ""}></textarea>
+      <button class="btn btn-primary" type="button" data-action="chat-send" ${state.chatBusy ? "disabled" : ""}>${state.chatBusy ? `<span class="spin"></span>` : "ส่ง"}</button>
+    </form>
+    <p class="faint" style="font-size:12.5px;margin:6px 4px 18px">Enter เพื่อส่ง · Shift+Enter ขึ้นบรรทัดใหม่ · คำแนะนำจาก AI อาจผิดพลาดได้ เรื่องสุขภาพ กฎหมาย การเงิน ควรตรวจสอบกับผู้เชี่ยวชาญ</p>`);
+  parts.push(history);
+  main.innerHTML = parts.join("");
+  if (chat) scrollChat();
+}
+
+function msgHtml(m, chat, i) {
+  if (m.role === "user") return `<div class="msg user"><div class="bubble">${esc(m.text)}</div></div>`;
+  const live = state.chatBusy && i === chat.messages.length - 1;
+  const body = m.error ? `<div class="error-box">${esc(m.error)}</div>`
+    : m.text ? renderMarkdown(m.text, chat.refs)
+    : `<span class="faint"><span class="spin"></span> ${chat.mode === "mentor" ? "พี่เลี้ยงกำลังคิด…" : "กำลังค้นในคลัง…"}</span>`;
+  return `<div class="msg assistant" data-raw="${esc(m.text || "")}">
+      <div class="bubble prose">${body}</div>
+      ${!live && m.text ? `<button type="button" class="btn btn-ghost btn-sm" data-action="chat-copy">คัดลอก</button>` : ""}
+    </div>`;
+}
+
+async function deleteChat(id) {
+  if (!confirm("ลบแชทนี้?")) return;
+  await db.del("chats", id);
+  state.chats = state.chats.filter((c) => c.id !== id);
+  if (state.chatId === id) state.chatId = null;
+  render();
+}
+
+async function sendChat() {
+  const input = $("#chat-input");
+  const text = (input?.value || "").trim();
+  if (!text || state.chatBusy) return;
+  if (!settings.apiKey) { toast("ใส่ API key ก่อน", { label: "ตั้งค่า", run: openSettings }); return; }
+
+  let chat = currentChat();
+  if (!chat) {
+    const ctx = buildVaultContext(state.chatScope);
+    chat = {
+      id: uid("chat"), mode: state.chatMode, scope: state.chatScope, title: text.slice(0, 60),
+      context: ctx.text, refs: ctx.refs, model: settings.model, lang: settings.lang,
+      messages: [], createdAt: Date.now(), updatedAt: Date.now(),
+    };
+    state.chats.unshift(chat);
+    state.chatId = chat.id;
+  }
+  // ถ้าคำตอบก่อนหน้าล้มเหลว ให้เอาออกก่อนส่งใหม่ (ไม่ส่งข้อความผิดพลาดกลับไปให้ API)
+  while (chat.messages.length && chat.messages[chat.messages.length - 1].error) chat.messages.pop();
+  if (chat.messages.length && chat.messages[chat.messages.length - 1].role === "user") chat.messages.pop();
+
+  chat.messages.push({ role: "user", text, ts: Date.now() });
+  const reply = { role: "assistant", text: "", ts: Date.now() };
+  chat.messages.push(reply);
+  state.chatBusy = true;
+  render();
+
+  const paint = () => {
+    const log = $("#chat-log");
+    if (!log) return;
+    const last = log.lastElementChild;
+    if (last) last.outerHTML = msgHtml(reply, chat, chat.messages.length - 1);
+    const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 160;
+    if (nearBottom) log.scrollTop = log.scrollHeight;
+  };
+  let raf = 0;
+
+  try {
+    const client = await getClient();
+    const { params, betas } = modelConfig(chat.mode === "mentor" ? "high" : "medium");
+    const system = [
+      { type: "text", text: `${chat.mode === "mentor" ? SYSTEM_MENTOR : SYSTEM_ASK}\n\n${CHAT_LANG[chat.lang] || CHAT_LANG.th}` },
+      { type: "text", text: `<vault>\n${chat.context}\n</vault>`, cache_control: { type: "ephemeral" } },
+    ];
+    // ส่ง content เดิมของ assistant กลับไปแบบไม่แก้ไข (รวม thinking blocks) — ประวัติแชทเป็นแบบต่อท้ายเท่านั้น
+    const messages = chat.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.role === "assistant" && m.content ? m.content : m.text }));
+    const stream = client.beta.messages.stream({ ...params, max_tokens: 64000, system, messages, betas }, { timeout: 15 * 60 * 1000 });
+    stream.on("text", (t) => {
+      reply.text += t;
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(); });
+    });
+    const final = await stream.finalMessage();
+    if (final.stop_reason === "refusal") throw new UserError("Claude ปฏิเสธการตอบคำถามนี้ — ลองถามใหม่ในอีกมุมหนึ่ง");
+    reply.text = final.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim() || reply.text;
+    reply.content = final.content;
+    if (!reply.text) throw new UserError("ไม่ได้รับคำตอบจาก AI — ลองใหม่อีกครั้ง");
+    if (final.stop_reason === "max_tokens") reply.text += "\n\n_(คำตอบยาวเกินลิมิต จึงถูกตัด — พิมพ์ \"ต่อ\" เพื่อให้ตอบต่อ)_";
+  } catch (err) {
+    reply.error = explainApiError(err, _Anthropic);
+    reply.text = "";
+    delete reply.content;
+  } finally {
+    cancelAnimationFrame(raf);
+    state.chatBusy = false;
+    chat.updatedAt = Date.now();
+    try { await db.put("chats", chat); } catch { /* storage full */ }
+    state.chats.sort((a, b) => b.updatedAt - a.updatedAt);
+    if (state.view === "mentor") { render(); $("#chat-input")?.focus(); }
+    else renderSide();
+  }
+}
+
 /* ================================================================ render == */
 const ICONS = {
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
@@ -560,6 +806,7 @@ function renderSide() {
     </button>`;
   side.innerHTML = [
     btn("all", "ทั้งหมด", state.items.length),
+    btn("mentor", "💬 ถาม / พี่เลี้ยง AI", state.chats.length),
     pending ? btn("pending", "รอสรุป / มีปัญหา", pending) : "",
     uncat ? btn("uncat", "ยังไม่จัดหมวด", uncat) : "",
     `<div class="side-label">หมวดของฉัน</div>`,
@@ -601,6 +848,7 @@ function cardHtml(item) {
 
 function renderMain() {
   const main = $("#main");
+  if (state.view === "mentor") { renderMentor(); return; }
   const items = visibleItems();
   const cat = catById(state.view);
   const parts = [];
@@ -626,7 +874,8 @@ function renderMain() {
     <div class="page-head">
       <div><h1>${esc(title)}</h1>${desc ? `<p class="desc">${esc(desc)}</p>` : ""}</div>
       <div class="actions">
-        ${cat ? `<button class="btn btn-sm" type="button" data-action="edit-cat">แก้ไขหมวด</button>` : ""}
+        ${cat ? `<button class="btn btn-sm btn-ink" type="button" data-action="mentor-cat">💬 ปรึกษาพี่เลี้ยงหมวดนี้</button>
+                 <button class="btn btn-sm" type="button" data-action="edit-cat">แก้ไขหมวด</button>` : ""}
       </div>
     </div>`);
 
@@ -881,7 +1130,7 @@ async function exportJson() {
   const files = await db.all("files");
   const payload = {
     app: "knowledge-vault", version: 1, exportedAt: new Date().toISOString(),
-    categories: state.categories, items: state.items,
+    categories: state.categories, items: state.items, chats: state.chats,
     files: await Promise.all(files.map(async (f) => ({ id: f.id, itemId: f.itemId, name: f.name, type: f.type, size: f.size, addedAt: f.addedAt, data: await blobToBase64(f.blob) }))),
   };
   download(`knowledge-vault-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(payload), "application/json");
@@ -914,6 +1163,7 @@ async function importJson(file) {
   if (!confirm(`นำเข้า ${data.items.length} รายการ และ ${data.categories.length} หมวด?\nรายการที่มี id ซ้ำจะถูกเขียนทับ ส่วนรายการอื่นจะยังอยู่`)) return;
   try {
     await db.putMany("categories", data.categories.filter((c) => c && c.id && c.name));
+    if (Array.isArray(data.chats)) await db.putMany("chats", data.chats.filter((c) => c && c.id && Array.isArray(c.messages)));
     await db.putMany("items", data.items.filter((i) => i && i.id).map((i) => ({ ...i, status: i.status === "processing" ? "pending" : i.status })));
     const files = (data.files || []).filter((f) => f && f.id && f.itemId && typeof f.data === "string");
     for (let k = 0; k < files.length; k += 20) {
@@ -928,8 +1178,8 @@ async function importJson(file) {
 
 async function wipeAll() {
   if (!confirm("ลบความรู้ หมวด และไฟล์แนบทั้งหมดในเครื่องนี้?\nการลบนี้ย้อนกลับไม่ได้ (แนะนำให้ส่งออกไฟล์สำรองก่อน)")) return;
-  await Promise.all([db.clear("items"), db.clear("files"), db.clear("categories")]);
-  state.items = []; state.categories = []; state.fileMeta = new Map(); state.view = "all";
+  await Promise.all([db.clear("items"), db.clear("files"), db.clear("categories"), db.clear("chats")]);
+  state.items = []; state.categories = []; state.chats = []; state.chatId = null; state.fileMeta = new Map(); state.view = "all";
   $("#dlg-settings").close();
   render();
   toast("ลบข้อมูลทั้งหมดแล้ว");
@@ -1014,6 +1264,21 @@ function bindEvents() {
       try { await navigator.clipboard.writeText(c.digest.markdown); toast("คัดลอกแล้ว"); } catch { toast("คัดลอกไม่สำเร็จ"); }
     }
     if (act === "edit-cat") openCats();
+    if (act === "mentor-cat") { state.chatScope = state.view; state.chatMode = "mentor"; state.chatId = null; state.view = "mentor"; render(); $("#chat-input")?.focus(); }
+    if (act === "chat-new") { state.chatId = null; renderMain(); $("#chat-input")?.focus(); }
+    if (act === "chat-mode") { state.chatMode = a.dataset.mode; renderMain(); }
+    if (act === "chat-open") { state.chatId = a.dataset.chat; renderMain(); scrollChat(); }
+    if (act === "chat-delete") deleteChat(a.dataset.chat);
+    if (act === "chat-starter") { $("#chat-input").value = a.dataset.text; $("#chat-input").focus(); }
+    if (act === "chat-send") sendChat();
+    if (act === "chat-copy") { try { await navigator.clipboard.writeText(a.closest(".msg").dataset.raw || ""); toast("คัดลอกแล้ว"); } catch { toast("คัดลอกไม่สำเร็จ"); } }
+  });
+
+  $("#main").addEventListener("change", (e) => {
+    if (e.target.id === "chat-scope") { state.chatScope = e.target.value; renderMain(); }
+  });
+  $("#main").addEventListener("keydown", (e) => {
+    if (e.target.id === "chat-input" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); }
   });
 
   /* --- add dialog --- */
